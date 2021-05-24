@@ -16,6 +16,9 @@ let maxIndexByStateExn (s : []f64) : i64 =
   let t = tail is in
   (reduce (\x y -> if x.1 > y.1 then x else y) h t).0
 
+entry getProb (result : ViterbiResult []) : f64 = result.prob
+entry getStates (result : ViterbiResult []) : []i64 = result.states
+
 entry parallelViterbi (predecessors : [][]i64) (transitionProb : [][]f64)
                       (initProbs : []f64) (numStates : i64) (outputProb : [][]f64)
                       (inputs : []i64) : ViterbiResult [] =
