@@ -1,3 +1,19 @@
+
+include "translate.mc"
+let parallelReduce = lam f. lam ne. lam as.
+  recursive let work = lam acc. lam as.
+    work (f acc (head as)) (tail as)
+  in
+  work ne as
+let map = lam f. lam s.
+  recursive let work = lam acc. lam s.
+    if null s then acc
+    else
+      work (snoc acc (f (head s))) (tail s)
+  in
+  work [] s
+let parallelMap = lam f. lam as. map f as
+
 type State = Int
 type LogProb = Float
 type ViterbiResult = {prob : LogProb, states : [State]}
@@ -12,13 +28,6 @@ let getLogProb : [LogProb] -> Int -> LogProb = lam s : [LogProb]. lam idx : Int.
   get s idx
 
 let identity : LogProb -> LogProb = lam x : LogProb. x
-
-let indexedSeq : [State] -> [(Int, State)] = lam s : [State].
-  create
-    (length s)
-    (lam i : Int.
-      let e : State = get s i in
-      (i, e))
 
 let mapi : (Int -> State -> LogProb) -> [State] -> [LogProb] =
   lam f : Int -> State -> LogProb. lam s : [State].
@@ -39,7 +48,7 @@ let maxByStateExn : (State -> LogProb) -> [State] -> State =
       t
   else never -- empty sequence
 
-let maxIndexByStateExn : (LogProb -> LogProb) -> [LogProb] -> Int =
+let maxIndexByStateExn : [LogProb] -> Int =
   lam s : [LogProb].
   let is : [(Int, LogProb)] = create (length s) (lam i : Int. (i, get s i)) in
   match is with [h] ++ t then
@@ -102,79 +111,52 @@ let parallelViterbi : [[State]] -> [[LogProb]] -> [LogProb] -> Int
 
 mexpr
 
+let model = parseModel (get argv 1) in
+let signals = parseSignals (get argv 2) in
+let inputSignal : Signal = get signals 0 in
+
+let bases = "ACGT" in
+
+let stateToIndex = lam s : State.
+  stateToIndex (length bases) baseToIndex s
+in
+
+let cmpState = lam s1 : State. lam s2 : State.
+  subi (stateToIndex s1) (stateToIndex s2)
+in
+
+let states = states bases model.k model.dMax in
+let predecessors =
+  map
+    (lam s1 : State.
+      let preds = setOfSeq cmpState (pred bases model.dMax s1) in
+      map
+        (lam s2 : State.
+          if setMem s2 preds then
+            stateToIndex s2
+          else negi 1)
+        states)
+    states in
+let transitionProb =
+  map (lam s1. map (lam s2. transitionProb model s1 s2) states) states in
+let initProbs = lam s : State. initProbs (length bases) s in
+let outputProb =
+  map
+    (lam s : State.
+      create
+        model.signalLevels
+        (lam i : Int.
+          let si = stateToIndex s in
+          get (get model.observationProbabilities i) si))
+    states
+in
+
 -- Need to contain a call to parallel viterbi implementation, or it will be
 -- removed by the dead code elimintation step.
 parallelViterbi
-  [[]]
-  [[]]
-  []
-  0
-  [[]]
-  []
-
-/-
-let compareViterbiResult = lam delta. lam l : ViterbiResult. lam r : ViterbiResult.
-  match l with {states = lstates, prob = lprob} then
-    match r with {states = rstates, prob = rprob} then
-      and (all (lam b. b) (zipWith eqi lstates rstates))
-          (ltf (absf (subf lprob rprob)) delta)
-    else never
-  else never
-in
-
-let delta = 1e-2 in
-
-let baseToIndex = lam base : Char.
-  if eqc base 'A' then 0
-  else if eqc base 'C' then 1
-  else if eqc base 'G' then 2
-  else if eqc base 'T' then 3
-  else error (concat "Unknown base character: " [base])
-in
-
--- Example adapted from
--- https://personal.utdallas.edu/~prr105020/biol6385/2019/lecture/lecture12_Viterbi_handout.pdf
-let predecessors = [[0, 1], [0, 1]] in
-let transitionProbs = [[negf 1.0, negf 1.0], [negf 1.322, negf 0.737]] in
-let initProbs = [negf 1.0, negf 1.0] in
-let states = [0, 1] in
-let outputProbs = [
-  [negf 2.322, negf 1.737, negf 1.737, negf 2.322],
-  [negf 1.737, negf 2.322, negf 2.322, negf 1.737]
-] in
-let inputs = map baseToIndex ['G', 'G', 'C', 'A', 'C', 'T', 'G', 'A', 'A'] in
-let mostProbableSequence =
-  parallelViterbi
-    predecessors
-    transitionProbs
-    initProbs
-    (length states)
-    outputProbs
-    inputs
-in
-let expected = {prob = negf 24.49, states = [0, 0, 0, 1, 1, 1, 1, 1, 1]} in
-utest mostProbableSequence with expected using compareViterbiResult delta in
-
--- Example adapted from https://www.pythonpool.com/viterbi-algorithm-python/
-let predecessors = [[0, 1], [0, 1]] in
-let transitionProbs = [[negf 0.515, negf 1.737], [negf 1.322, negf 0.737]] in
-let initProbs = [negf 0.737, negf 1.322] in
-let states = [0, 1] in
-let outputProbs = [
-  [negf 1.0, negf 1.322, negf 3.322],
-  [negf 3.322, negf 1.737, negf 0.737]
-] in
-let inputs = [0, 1, 2] in
-let mostProbableSequence =
-  parallelViterbi
-    predecessors
-    transitionProbs
-    initProbs
-    (length states)
-    outputProbs
-    inputs
-in
-let expected = {prob = negf 6.047, states = [0, 0, 1]} in
-utest mostProbableSequence with expected using compareViterbiResult delta in
--/
-()
+  predecessors
+  transitionProb
+  initProbs
+  (length states)
+  outputProb
+  (subsequence inputSignal.values 0 10)

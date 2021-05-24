@@ -24,7 +24,7 @@ entry parallelViterbi (predecessors : [][]i64) (transitionProb : [][]f64)
                       (inputs : []i64) : ViterbiResult [] =
   let x = head inputs in
   let inputs = tail inputs in
-  let chi1 = tabulate numStates (\state -> probMul initProbs[state] (outputProb[state, x])) in
+  let chi1 = tabulate numStates (\state -> probMul initProbs[state] outputProb[state, x]) in
 
   let forward (chi : []f64) (inputs : []i64) : {chi : []f64, zeta : [][]i64} =
     let zeta = map (\_ -> replicate numStates 0i64) inputs in
@@ -34,7 +34,9 @@ entry parallelViterbi (predecessors : [][]i64) (transitionProb : [][]f64)
         let x = head inputs in
         let inputs = tail inputs in
         let logProbFrom =
-          (\state pre -> probMul chi[pre] transitionProb[pre, state])
+          (\state pre ->
+            if pre == -1 then -1.0 / 0.0
+            else probMul chi[pre] transitionProb[pre, state])
         in
         let newZeta = tabulate numStates (\state -> maxByStateExn (logProbFrom state) predecessors[state]) in
         let newChi = mapi (\state pre -> probMul (logProbFrom state pre)
