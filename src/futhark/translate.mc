@@ -10,6 +10,13 @@ let baseToIndex = lam base : Char.
   else match base with 'T' then 3
   else never
 
+let indexToBase = lam idx : Int.
+  match idx with 0 then 'A'
+  else match idx with 1 then 'C'
+  else match idx with 2 then 'G'
+  else match idx with 3 then 'T'
+  else never
+
 let printFloatSeq = lam s : [Float].
   strJoin "\n" [
     int2string (length s),
@@ -22,8 +29,23 @@ let printIntSeq = lam s : [Int].
     join (map (lam i : Int. concat (int2string i) " ") s)
   ]
 
+let statesPerLayer = lam model : ViterbiParams.
+  floorfi (powf (int2float (length bases)) model.k)
+
+let stateToIndex = lam model : ViterbiParams. lam s : State.
+  addi (muli (subi s.layer 1) (statesPerLayer model))
+       (stateToIndex (length bases) baseToIndex s)
+
+let indexToState = lam model : ViterbiParams. lam i : Int.
+  let layer = addi 1 (divi i (statesPerLayer model)) in
+  let kmerIndex = modi i (statesPerLayer model) in
+  let base1 = indexToBase (modi kmerIndex (length bases)) in
+  let base2 = indexToBase (modi (divi kmerIndex (length bases)) (length bases)) in
+  let base3 = indexToBase (modi (divi kmerIndex (muli (length bases) (length bases))) (length bases)) in
+  {kmer = [base1, base2, base3], layer = layer}
+
 let transitionProb = lam model : ViterbiParams. lam s1 : State. lam s2 : State.
-  let stateIdx = stateToIndex (length bases) baseToIndex s1 in
+  let stateIdx = modi (stateToIndex model s1) (statesPerLayer model) in
   let baseIdx = baseToIndex (last s2.kmer) in
   let baseProb = get (get model.transitionProbabilities baseIdx) stateIdx in
   let durProb =
@@ -39,20 +61,14 @@ let transitionProb = lam model : ViterbiParams. lam s1 : State. lam s2 : State.
   in
   probMul baseProb durProb
 
-let cmpState : State -> State -> Int = lam s1 : State. lam s2 : State.
-  let i1 = stateToIndex (length bases) baseToIndex s1 in
-  let i2 = stateToIndex (length bases) baseToIndex s2 in
-  subi i1 i2
+let cmpState : ViterbiParams -> State -> State -> Int =
+  lam model : ViterbiParams. lam s1 : State. lam s2 : State.
+  subi (stateToIndex model s1) (stateToIndex model s2)
 
 let printModel = lam model : ViterbiParams.
-  let states = states bases model.k model.dMax in
+  let states = sort (cmpState model) (states bases model.k model.dMax) in
   let predecessors =
-    map (lam s2.
-      let pre = setOfSeq cmpState (pred bases model.dMax s2) in
-      map (lam s1.
-        if setMem s1 pre then
-          stateToIndex (length bases) baseToIndex s1
-        else negi 1) states) states
+    map (lam s2. map (stateToIndex model) (pred bases model.dMax s2)) states
   in
   let transitions =
     map (lam s1. map (lam s2. transitionProb model s1 s2) states) states
@@ -65,6 +81,7 @@ let printModel = lam model : ViterbiParams.
     int2string model.dMax,
     float2string model.tailFactor,
     float2string model.tailFactorComp,
+    int2string (length (get predecessors 0)),
     strJoin "\n" (map (lam s : [Int]. join (map (lam i. concat (int2string i) " ") s)) predecessors),
     strJoin "\n" (map (lam s : [Float]. join (map (lam f. concat (float2string f) " ") s)) transitions)
  ]

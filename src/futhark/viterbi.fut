@@ -12,8 +12,8 @@ let maxByStateExn (f : i64 -> f64) (s : []i64) : i64 =
 
 let maxIndexByStateExn (s : []f64) : i64 =
   let is = tabulate (length s) (\i -> (i, s[i])) in
-  let h = head is in
-  let t = tail is in
+  let h = is[0] in
+  let t = is[1:] in
   (reduce (\x y -> if x.1 > y.1 then x else y) h t).0
 
 entry getProb (result : ViterbiResult []) : f64 = result.prob
@@ -22,8 +22,8 @@ entry getStates (result : ViterbiResult []) : []i64 = result.states
 entry parallelViterbi (predecessors : [][]i64) (transitionProb : [][]f64)
                       (initProbs : []f64) (numStates : i64) (outputProb : [][]f64)
                       (inputs : []i64) : ViterbiResult [] =
-  let x = head inputs in
-  let inputs = tail inputs in
+  let x = inputs[0] in
+  let inputs = inputs[1:] in
   let chi1 = tabulate numStates (\state -> probMul initProbs[state] outputProb[state, x]) in
 
   let forward (chi : []f64) (inputs : []i64) : {chi : []f64, zeta : [][]i64} =
@@ -35,7 +35,7 @@ entry parallelViterbi (predecessors : [][]i64) (transitionProb : [][]f64)
         let inputs = tail inputs in
         let logProbFrom =
           (\state pre ->
-            if pre == -1 then -1.0 / 0.0
+            if pre == -1 then -(1.0 / 0.0)
             else probMul chi[pre] transitionProb[pre, state])
         in
         let newZeta = tabulate numStates (\state -> maxByStateExn (logProbFrom state) predecessors[state]) in
@@ -48,15 +48,16 @@ entry parallelViterbi (predecessors : [][]i64) (transitionProb : [][]f64)
   in
   let backwardStep (acc : []i64) (zeta : [][]i64) : []i64 =
     let lastState = acc[0] in
-    let acc = map (\_ -> lastState) zeta in
+    let acc = tabulate (length zeta + 1) (\_ -> lastState) in
     let n = length zeta in
+    let zeta = reverse zeta in
     let (acc, _) =
       loop (acc, zeta) for i < n do
-        let here = last zeta in
-        let zeta = init zeta in
-        (acc with [n-i-1] = here[acc[n-i-1]], zeta)
+        let here = zeta[0] in
+        let zeta = zeta[1:] in
+        (acc with [i+1] = here[acc[i]], zeta)
     in
-    concat acc [lastState]
+    reverse acc
   in
 
   let r = forward chi1 inputs in
