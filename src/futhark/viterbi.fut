@@ -29,29 +29,24 @@ entry parallelViterbi (predecessors : [][]i64) (transitionProb : [][]f64)
   let forward (chi : []f64) (inputs : []i64) : {chi : []f64, zeta : [][]i64} =
     let n = length inputs in
     let zeta = replicate n (replicate numStates 0i64) in
-    let (chi, zeta) = loop (chi, zeta) for i < n do
+    loop {chi = chi, zeta = zeta} for i < n do
       let x = inputs[i] in
       let logProbFrom = (\state pre -> probMul chi[pre] transitionProb[pre, state]) in
       let newZeta = tabulate numStates (\state -> maxByStateExn (logProbFrom state) predecessors[state]) in
       let newChi = mapi (\state pre -> probMul (logProbFrom state pre) outputProb[state, x]) newZeta in
-      (newChi, zeta with [i] = newZeta)
-    in
-    {chi = chi, zeta = zeta}
+      {chi = newChi, zeta = zeta with [i] = newZeta}
   in
 
   let backwardStep (acc : []i64) (zeta : [][]i64) =
     let n = length zeta in
     let acc = concat acc (replicate n 0i64) in
-    let zeta = reverse zeta in
-    let acc = loop acc for i < n do
+    loop acc for i < n do
       let here = zeta[i] in
       acc with [i+1] = zeta[i, acc[i]]
-    in
-    reverse acc
   in
 
   let r = forward chi1 inputs in
   match r case {chi=chi, zeta=zeta} ->
     let lastState = maxIndexByStateExn chi in
     let logprob = chi[lastState] in
-    {prob = logprob, states = backwardStep [lastState] zeta}
+    {prob = logprob, states = reverse (backwardStep [lastState] (reverse zeta))}

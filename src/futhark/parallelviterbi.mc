@@ -24,24 +24,24 @@ let probMul : LogProb -> LogProb -> LogProb = addf
 
 let maxByStateExn : (Int -> LogProb) -> [Int] -> Int =
   lam f : Int -> LogProb. lam s : [Int].
-  match s with [h] ++ t then
-    parallelReduce
-      (lam x : Int. lam y : Int.
-        if gtf (f x) (f y) then x else y)
-      h
-      t
-  else never -- empty sequence
+  let h = head s in
+  let t = tail s in
+  parallelReduce
+    (lam x : Int. lam y : Int.
+      if gtf (f x) (f y) then x else y)
+    h
+    t
 
 let maxIndexByStateExn : [LogProb] -> Int =
   lam s : [LogProb].
   let is : [(Int, LogProb)] = create (length s) (lam i : Int. (i, get s i)) in
-  match is with [h] ++ t then
-    (parallelReduce
-      (lam x : (Int, LogProb). lam y : (Int, LogProb).
-        if gtf x.1 y.1 then x else y)
-      h
-      t).0
-  else never -- empty sequence
+  let h = head is in
+  let t = tail is in
+  (parallelReduce
+    (lam x : (Int, LogProb). lam y : (Int, LogProb).
+      if gtf x.1 y.1 then x else y)
+    h
+    t).0
 
 -- Assumptions on data:
 -- * States have been mapped to integers in range 0..n-1 (can use sequences instead of map)
@@ -83,14 +83,14 @@ let parallelViterbi : [[Int]] -> [[LogProb]] -> [LogProb] -> Int
         lam acc : [Int].
         lam zeta : [[Int]].
         match zeta with [] then acc
-        else match zeta with zeta ++ [here] then
+        else match zeta with [here] ++ zeta then
           backwardStep (cons (get here (head acc)) acc) zeta
         else never
     in
     match forward chi1 [] inputs with {chi = chi, zeta = zeta} then
       let lastState = maxIndexByStateExn chi in
       let logprob = get chi lastState in
-      {prob = logprob, states = backwardStep [lastState] zeta}
+      {prob = logprob, states = reverse (backwardStep [lastState] (reverse zeta))}
     else never
   else never
 
