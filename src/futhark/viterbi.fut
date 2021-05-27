@@ -31,9 +31,7 @@ entry parallelViterbi (predecessors : [][]i64) (transitionProb : [][]f64)
     let zeta = replicate n (replicate numStates 0i64) in
     let (chi, zeta) = loop (chi, zeta) for i < n do
       let x = inputs[i] in
-      let logProbFrom = (\state pre ->
-        if pre == -1 then -(1.0 / 0.0)
-        else probMul chi[pre] transitionProb[pre, state]) in
+      let logProbFrom = (\state pre -> probMul chi[pre] transitionProb[pre, state]) in
       let newZeta = tabulate numStates (\state -> maxByStateExn (logProbFrom state) predecessors[state]) in
       let newChi = mapi (\state pre -> probMul (logProbFrom state pre) outputProb[state, x]) newZeta in
       (newChi, zeta with [i] = newZeta)
