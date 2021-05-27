@@ -94,8 +94,8 @@ def write_signal(output_file, signals):
             , signals = {signals}
             }}
             """
-            .format(keys=format_list(signals['keys'][0:1]),
-                    signals=signals['signals'][0:1])
+            .format(keys=format_list(signals['keys']),
+                    signals=signals['signals'])
         )
 
 
