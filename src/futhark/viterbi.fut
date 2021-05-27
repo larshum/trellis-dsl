@@ -27,35 +27,27 @@ entry parallelViterbi (predecessors : [][]i64) (transitionProb : [][]f64)
   let chi1 = tabulate numStates (\state -> probMul initProbs[state] outputProb[state, x]) in
 
   let forward (chi : []f64) (inputs : []i64) : {chi : []f64, zeta : [][]i64} =
-    let zeta = map (\_ -> replicate numStates 0i64) inputs in
     let n = length inputs in
-    let (chi, zeta, _) =
-      loop (chi, zeta, inputs) = (chi, zeta, inputs) for i < n do
-        let x = head inputs in
-        let inputs = tail inputs in
-        let logProbFrom =
-          (\state pre ->
-            if pre == -1 then -(1.0 / 0.0)
-            else probMul chi[pre] transitionProb[pre, state])
-        in
-        let newZeta = tabulate numStates (\state -> maxByStateExn (logProbFrom state) predecessors[state]) in
-        let newChi = mapi (\state pre -> probMul (logProbFrom state pre)
-                                                 outputProb[state, x])
-                          newZeta in
-        (newChi, zeta with [i] = newZeta, inputs)
+    let zeta = replicate n (replicate numStates 0i64) in
+    let (chi, zeta) = loop (chi, zeta) for i < n do
+      let x = inputs[i] in
+      let logProbFrom = (\state pre ->
+        if pre == -1 then -(1.0 / 0.0)
+        else probMul chi[pre] transitionProb[pre, state]) in
+      let newZeta = tabulate numStates (\state -> maxByStateExn (logProbFrom state) predecessors[state]) in
+      let newChi = mapi (\state pre -> probMul (logProbFrom state pre) outputProb[state, x]) newZeta in
+      (newChi, zeta with [i] = newZeta)
     in
     {chi = chi, zeta = zeta}
   in
-  let backwardStep (acc : []i64) (zeta : [][]i64) : []i64 =
-    let lastState = acc[0] in
-    let acc = tabulate (length zeta + 1) (\_ -> lastState) in
+
+  let backwardStep (acc : []i64) (zeta : [][]i64) =
     let n = length zeta in
+    let acc = concat acc (replicate n 0i64) in
     let zeta = reverse zeta in
-    let (acc, _) =
-      loop (acc, zeta) for i < n do
-        let here = zeta[0] in
-        let zeta = zeta[1:] in
-        (acc with [i+1] = here[acc[i]], zeta)
+    let acc = loop acc for i < n do
+      let here = zeta[i] in
+      acc with [i+1] = zeta[i, acc[i]]
     in
     reverse acc
   in

@@ -158,6 +158,32 @@ instances_t read_problem_instances(struct futhark_context *ctx, FILE *model, FIL
     return inst;
 }
 
+char index_to_base(int idx) {
+    if (idx == 0) return 'A';
+    else if (idx == 1) return 'C';
+    else if (idx == 2) return 'G';
+    else if (idx == 3) return 'T';
+    else {
+        fprintf(stderr, "Could not map index %d to a base\n", idx);
+        exit(1);
+    }
+}
+
+void print_states(i64 *states, size_t length) {
+    for (int i = 0; i < length; i++) {
+        if (states[i] < 64) {
+            char last_kmer = index_to_base((states[i] >> 4) & 3);
+            printf("%c", last_kmer);
+        }
+    }
+    printf("\n");
+}
+
+void print_result_layered_model(viterbi_result_t *result) {
+    print_states(result->states, result->states_size);
+    printf("%lf\n", result->prob);
+}
+
 void free_model(struct futhark_context *ctx, viterbi_model_t *model) {
     futhark_free_i64_2d(ctx, model->predecessors);
     futhark_free_f64_2d(ctx, model->transition_prob);
@@ -178,8 +204,8 @@ viterbi_result_t call_viterbi(struct futhark_context *ctx,
         viterbi_model_t *model, viterbi_signal_t *signal) {
     printf("Running viterbi on input signal %s\n", signal->id);
     clock_t begin = clock();
-    struct futhark_opaque_ViterbiResult *futResult;
-    int v = futhark_entry_parallelViterbi(ctx, &futResult, model->predecessors,
+    struct futhark_opaque_ViterbiResult *fut_result;
+    int v = futhark_entry_parallelViterbi(ctx, &fut_result, model->predecessors,
         model->transition_prob, model->init_prob, model->num_states,
         model->output_prob, signal->data);
     futhark_context_sync(ctx);
@@ -189,40 +215,18 @@ viterbi_result_t call_viterbi(struct futhark_context *ctx,
     }
 
     viterbi_result_t result;
-    futhark_entry_getProb(ctx, &result.prob, futResult);
+    futhark_entry_getProb(ctx, &result.prob, fut_result);
     result.states_size = signal->data_size;
     result.states = (i64*) malloc(result.states_size * sizeof(i64));
     struct futhark_i64_1d* states = futhark_new_i64_1d(ctx, result.states, result.states_size);
-    futhark_entry_getStates(ctx, &states, futResult);
+    futhark_entry_getStates(ctx, &states, fut_result);
     futhark_context_sync(ctx);
     futhark_values_i64_1d(ctx, states, result.states);
     futhark_free_i64_1d(ctx, states);
+    futhark_free_opaque_ViterbiResult(ctx, fut_result);
     clock_t end = clock();
-    printf("Viterbi algorithm took: %lf\n", (double)(end-begin)/CLOCKS_PER_SEC);
-
+    printf("Viterbi on %s took: %lf\n", signal->id, (double)(end-begin)/CLOCKS_PER_SEC);
     return result;
-}
-
-char index_to_base(int idx) {
-    if (idx == 0) return 'A';
-    else if (idx == 1) return 'C';
-    else if (idx == 2) return 'G';
-    else if (idx == 3) return 'T';
-    else {
-        fprintf(stderr, "Could not map index %d to a base\n", idx);
-        exit(1);
-    }
-}
-
-void print_result_layered_model(viterbi_result_t *result) {
-    for (int i = 0; i < result->states_size; i++) {
-        if (result->states[i] < 64) {
-            char last_kmer = index_to_base((result->states[i] >> 4) & 3);
-            printf("%c", last_kmer);
-        }
-    }
-    printf("\n");
-    printf("%lf\n", result->prob);
 }
 
 int main(int argc, char** argv) {
