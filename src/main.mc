@@ -123,9 +123,7 @@ let printState : State -> String = lam s : State.
 let printStates = lam states : [State].
   let layer1states : [State] = filter (lam s : State. eqi s.layer 1) states in
   if null layer1states then []
-  else match layer1states with [h] ++ t then
-    join [h.kmer, map (lam s : State. last s.kmer) t]
-  else never
+  else map (lam s : State. last s.kmer) layer1states
 
 mexpr
 
@@ -185,9 +183,6 @@ let result : ViterbiResult =
       get (get model.observationProbabilities i) stateIndex)
     inputSignal.values
 in
-
-let lastState : State = last result.states in
-utest lastState.layer with 1 in
 
 let referenceGenome = map indexToBase inputReference.genome in
 
