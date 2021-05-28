@@ -9,7 +9,7 @@ include "mexpr/utesttrans.mc"
 lang PMExprCompile =
   BootParser +
   MExprSym + MExprTypeAnnot + MExprUtestTrans + MExprPatternKeywordMaker +
-  FutharkGenerate + FutharkPrettyPrint
+  FutharkGenerate
 end
 
 let parallelKeywords = [
@@ -32,14 +32,23 @@ let keywordsSymEnv =
 let mergeWithKeywordsSymEnv = lam symEnv : SymEnv.
   {symEnv with varEnv = mapUnion symEnv.varEnv keywordsSymEnv.varEnv}
 
+let printMExprAst = lam ast : Expr.
+  use MExprPrettyPrint in
+  printLn (expr2str ast)
+
+let printFutharkAst = lam ast : FutProg.
+  use FutharkPrettyPrint in
+  printLn (expr2str ast)
+
 let compile = lam file.
   use PMExprCompile in
   let ast = parseMCoreFile parallelKeywords file in
-  let ast = typeAnnot (symbolizeExpr keywordsSymEnv ast) in
+  let ast = symbolizeExpr keywordsSymEnv ast in
+  let ast = typeAnnot ast in
   let ast = makeKeywords [] ast in
   let ast = utestStrip ast in
   let futharkAst = generateProgram ast in
-  printLn (expr2str futharkAst)
+  printFutharkAst futharkAst
 
 mexpr
 

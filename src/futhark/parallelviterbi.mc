@@ -2,12 +2,6 @@
 type LogProb = Float
 type ViterbiResult = {prob : LogProb, states : [Int]}
 
--- Redefinitions of standard library functions with specialized type
--- annotations as we currently do not support generic types.
-let head : [Int] -> Int = lam s : [Int].
-  let h : Int = get s 0 in
-  h
-
 let getLogProb : [LogProb] -> Int -> LogProb = lam s : [LogProb]. lam idx : Int.
   get s idx
 
@@ -24,24 +18,24 @@ let probMul : LogProb -> LogProb -> LogProb = addf
 
 let maxByStateExn : (Int -> LogProb) -> [Int] -> Int =
   lam f : Int -> LogProb. lam s : [Int].
-  let h = head s in
-  let t = tail s in
-  parallelReduce
-    (lam x : Int. lam y : Int.
-      if gtf (f x) (f y) then x else y)
-    h
-    t
+  match s with [h] ++ t then
+    parallelReduce
+      (lam x : Int. lam y : Int.
+        if gtf (f x) (f y) then x else y)
+      h
+      t
+  else never
 
 let maxIndexByStateExn : [LogProb] -> Int =
   lam s : [LogProb].
   let is : [(Int, LogProb)] = create (length s) (lam i : Int. (i, get s i)) in
-  let h = head is in
-  let t = tail is in
-  (parallelReduce
-    (lam x : (Int, LogProb). lam y : (Int, LogProb).
-      if gtf x.1 y.1 then x else y)
-    h
-    t).0
+  match is with [h] ++ t then
+    (parallelReduce
+      (lam x : (Int, LogProb). lam y : (Int, LogProb).
+        if gtf x.1 y.1 then x else y)
+      h
+      t).0
+  else never
 
 -- Assumptions on data:
 -- * States have been mapped to integers in range 0..n-1 (can use sequences instead of map)
@@ -64,9 +58,10 @@ let parallelViterbi : [[Int]] -> [[LogProb]] -> [LogProb] -> Int
       let forward =
         lam chi : [LogProb].
         lam zeta : [[Int]].
-        lam inputs : [Int].
-        match inputs with [] then {chi = chi, zeta = zeta}
-        else match inputs with [x] ++ inputs then
+        lam i : Int.
+        lam n : Int.
+        if lti i n then
+          let x = get inputs i in
           let logProbFrom : Int -> Int -> LogProb =
             lam state. lam pre.
               probMul (getLogProb chi pre)
@@ -77,20 +72,30 @@ let parallelViterbi : [[Int]] -> [[LogProb]] -> [LogProb] -> Int
             (lam state : Int. lam pre : Int. probMul (logProbFrom state pre)
                                                      (getLogProb (get outputProb state) x))
             newZeta in
-          forward newChi (snoc zeta newZeta) inputs
-        else never
+          let zeta = set zeta i newZeta in
+          forward newChi zeta (addi i 1) n
+        else {chi = chi, zeta = zeta}
       let backwardStep =
         lam acc : [Int].
         lam zeta : [[Int]].
-        match zeta with [] then acc
-        else match zeta with [here] ++ zeta then
-          backwardStep (cons (get here (head acc)) acc) zeta
-        else never
+        lam i : Int.
+        lam n : Int.
+        if lti i n then
+          let ii = addi i 1 in
+          let here = get zeta i in
+          let acc = set acc ii (get here (get acc i)) in
+          backwardStep acc zeta ii n
+        else acc
     in
-    match forward chi1 [] inputs with {chi = chi, zeta = zeta} then
+    let n = length inputs in
+    let acc = create n (lam. create numStates (lam. 0)) in
+    let r = forward chi1 acc 0 n in
+    match r with {chi = chi, zeta = zeta} then
       let lastState = maxIndexByStateExn chi in
       let logprob = get chi lastState in
-      {prob = logprob, states = reverse (backwardStep [lastState] (reverse zeta))}
+      let n = length zeta in
+      let acc = create (addi n 1) (lam. 0) in
+      {prob = logprob, states = reverse (backwardStep acc (reverse zeta) 0 n)}
     else never
   else never
 

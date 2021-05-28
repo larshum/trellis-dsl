@@ -3,7 +3,7 @@ export LD_LIBRARY_PATH=/usr/local/cuda/lib64/
 export CPATH=/usr/local/cuda/include
 export CFLAGS=-O3 -std=c11
 
-default: viterbi model.txt signals.txt# parallelviterbi
+default: viterbi model.txt signals.txt parallelmi
 
 parallelviterbi: parallelviterbi.mc parallelmi
 	./parallelmi $<
