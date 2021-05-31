@@ -20,10 +20,11 @@ entry getProb (result : ViterbiResult []) : f64 = result.prob
 entry getStates (result : ViterbiResult []) : []i64 = result.states
 
 entry parallelViterbi (predecessors : [][]i64) (transitionProb : [][]f64)
-                      (initProbs : []f64) (numStates : i64) (outputProb : [][]f64)
-                      (inputs : []i64) : ViterbiResult [] =
+                      (initProbs : []f64) (outputProb : [][]f64) (inputs : []i64)
+                      : ViterbiResult [] =
   let x = inputs[0] in
   let inputs = inputs[1:] in
+  let numStates = length predecessors in
   let chi1 = tabulate numStates (\state -> probMul initProbs[state] outputProb[state, x]) in
 
   let forward (chi : []f64) (inputs : []i64) : {chi : []f64, zeta : [][]i64} =
