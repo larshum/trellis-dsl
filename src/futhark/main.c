@@ -204,10 +204,9 @@ viterbi_result_t call_viterbi(struct futhark_context *ctx,
         viterbi_model_t *model, viterbi_signal_t *signal) {
     printf("Running viterbi on input signal %s\n", signal->id);
     clock_t begin = clock();
-    struct futhark_opaque_ViterbiResult *fut_result;
-    int v = futhark_entry_parallelViterbi(ctx, &fut_result, model->predecessors,
-        model->transition_prob, model->init_prob, model->num_states,
-        model->output_prob, signal->data);
+    struct futhark_opaque_v_ViterbiResult *fut_result;
+    int v = futhark_entry_v_parallelViterbi(ctx, &fut_result, model->predecessors,
+        model->transition_prob, model->init_prob, model->output_prob, signal->data);
     futhark_context_sync(ctx);
     if (v != 0) {
         printf("Futhark error: %s\n", futhark_context_get_error(ctx));
@@ -215,15 +214,15 @@ viterbi_result_t call_viterbi(struct futhark_context *ctx,
     }
 
     viterbi_result_t result;
-    futhark_entry_getProb(ctx, &result.prob, fut_result);
+    futhark_entry_v_getProb(ctx, &result.prob, fut_result);
     result.states_size = signal->data_size;
     result.states = (i64*) malloc(result.states_size * sizeof(i64));
     struct futhark_i64_1d* states = futhark_new_i64_1d(ctx, result.states, result.states_size);
-    futhark_entry_getStates(ctx, &states, fut_result);
+    futhark_entry_v_getStates(ctx, &states, fut_result);
     futhark_context_sync(ctx);
     futhark_values_i64_1d(ctx, states, result.states);
     futhark_free_i64_1d(ctx, states);
-    futhark_free_opaque_ViterbiResult(ctx, fut_result);
+    futhark_free_opaque_v_ViterbiResult(ctx, fut_result);
     clock_t end = clock();
     printf("Viterbi on %s took: %lf\n", signal->id, (double)(end-begin)/CLOCKS_PER_SEC);
     return result;

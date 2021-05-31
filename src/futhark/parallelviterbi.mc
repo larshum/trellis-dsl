@@ -87,6 +87,14 @@ let parallelViterbi_backwardStep : Int -> [[Int]] -> [Int] =
   in
   work acc 0 n
 
+let getProb : ViterbiResult -> Float =
+  lam result : ViterbiResult.
+  result.prob
+
+let getStates : ViterbiResult -> [Int] =
+  lam result : ViterbiResult.
+  result.states
+
 -- Assumptions on data:
 -- * States have been mapped to integers in range 0..n-1 (can use sequences instead of map)
 -- * Inputs have been mapped to integers in range 0..m-1 (instead of being an arbitrary type)
@@ -117,9 +125,13 @@ let parallelViterbi : [[Int]] -> [[Float]] -> [Float] -> [[Float]]
 
 mexpr
 
-parallelViterbi
-  [[]]
-  [[]]
-  []
-  [[]]
-  []
+let result =
+  parallelViterbi
+    [[]]
+    [[]]
+    []
+    [[]]
+    [] in
+let p = getProb result in
+let states = getStates result in
+()
