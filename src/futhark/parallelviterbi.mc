@@ -1,24 +1,21 @@
+type ViterbiResult = {prob : Float, states : [Int]}
 
-type LogProb = Float
-type ViterbiForwardResult = {chi : [LogProb], zeta : [[Int]]}
-type ViterbiResult = {prob : LogProb, states : [Int]}
-
-let getLogProb : [LogProb] -> Int -> LogProb = lam s : [LogProb]. lam idx : Int.
+let getFloat : [Float] -> Int -> Float = lam s : [Float]. lam idx : Int.
   get s idx
 
-let identity : LogProb -> LogProb = lam x : LogProb. x
+let identity : Float -> Float = lam x : Float. x
 
-let mapi : (Int -> Int -> LogProb) -> [Int] -> [LogProb] =
-  lam f : Int -> Int -> LogProb. lam s : [Int].
+let mapi : (Int -> Int -> Float) -> [Int] -> [Float] =
+  lam f : Int -> Int -> Float. lam s : [Int].
   let f = lam x : (Int, Int). f x.0 x.1 in
   let is : [(Int, Int)] = create (length s) (lam i : Int. (i, get s i)) in
-  let res : [LogProb] = parallelMap f is in
+  let res : [Float] = parallelMap f is in
   res
 
-let probMul : LogProb -> LogProb -> LogProb = addf
+let probMul : Float -> Float -> Float = addf
 
-let maxByStateExn : (Int -> LogProb) -> [Int] -> Int =
-  lam f : Int -> LogProb. lam s : [Int].
+let maxByStateExn : (Int -> Float) -> [Int] -> Int =
+  lam f : Int -> Float. lam s : [Int].
   match s with [h] ++ t then
     parallelReduce
       (lam x : Int. lam y : Int.
@@ -27,85 +24,93 @@ let maxByStateExn : (Int -> LogProb) -> [Int] -> Int =
       t
   else never
 
-let maxIndexByStateExn : [LogProb] -> Int =
-  lam s : [LogProb].
-  let is : [(Int, LogProb)] = create (length s) (lam i : Int. (i, get s i)) in
+let maxIndexByStateExn : [Float] -> Int =
+  lam s : [Float].
+  let is : [(Int, Float)] = create (length s) (lam i : Int. (i, get s i)) in
   match is with [h] ++ t then
     (parallelReduce
-      (lam x : (Int, LogProb). lam y : (Int, LogProb).
+      (lam x : (Int, Float). lam y : (Int, Float).
         if gtf x.1 y.1 then x else y)
       h
       t).0
   else never
 
-recursive
-  let parallelViterbi_forward : [[Int]] -> [[LogProb]] -> [[LogProb]] -> [Int]
-                             -> [LogProb] -> [[Int]] -> Int -> Int
-                             -> ViterbiForwardResult =
-    lam predecessors : [[Int]].
-    lam transitionProb : [[LogProb]].
-    lam outputProb : [[LogProb]].
-    lam inputs : [Int].
-    lam chi : [LogProb].
-    lam zeta : [[Int]].
-    lam i : Int.
-    lam n : Int.
-    if lti i n then
-      let numStates : Int = length predecessors in
-      let x : Int = get inputs i in
-      let logProbFrom : Int -> Int -> LogProb =
-        lam state. lam pre.
-          probMul (getLogProb chi pre)
-                  (getLogProb (get transitionProb pre) state) in
-      let newZeta : [Int] = create numStates
-        (lam state : Int. maxByStateExn (logProbFrom state) (get predecessors state)) in
-      let newChi = mapi
-        (lam state : Int. lam pre : Int. probMul (logProbFrom state pre)
-                                                 (getLogProb (get outputProb state) x))
-        newZeta in
-      let zeta = set zeta i newZeta in
-      parallelViterbi_forward predecessors transitionProb outputProb inputs
-                              newChi zeta (addi i 1) n
-    else {chi = chi, zeta = zeta}
-  let parallelViterbi_backwardStep : [Int] -> [[Int]] -> Int -> Int -> [Int] =
+let parallelViterbi_forward : [[Int]] -> [[Float]] -> [[Float]] -> [Int]
+                           -> [Float] -> {chi : [Float], zeta : [[Int]]} =
+  lam predecessors : [[Int]].
+  lam transitionProb : [[Float]].
+  lam outputProb : [[Float]].
+  lam inputs : [Int].
+  lam chi1 : [Float].
+  let numStates : Int = length predecessors in
+  let n = length inputs in
+  let zeta : [[Int]] = create n (lam. create numStates (lam. 0)) in
+  recursive let work : [Float] -> [[Int]] -> Int -> Int
+                    -> {chi : [Float], zeta : [[Int]]} =
+      lam chi : [Float].
+      lam zeta : [[Int]].
+      lam i : Int.
+      lam n : Int.
+      if lti i n then
+        let x : Int = get inputs i in
+        let logProbFrom : Int -> Int -> Float =
+          lam state. lam pre.
+            probMul (getFloat chi pre)
+                    (getFloat (get transitionProb pre) state) in
+        let newZeta : [Int] = create numStates
+          (lam state : Int. maxByStateExn (logProbFrom state) (get predecessors state)) in
+        let newChi = mapi
+          (lam state : Int. lam pre : Int. probMul (logProbFrom state pre)
+                                                   (getFloat (get outputProb state) x))
+          newZeta in
+        let zeta : [[Int]] = set zeta i newZeta in
+        work newChi zeta (addi i 1) n
+      else {chi = chi, zeta = zeta}
+  in
+  work chi1 zeta 0 n
+
+let parallelViterbi_backwardStep : Int -> [[Int]] -> [Int] =
+  lam lastState : Int.
+  lam zeta : [[Int]].
+  let n = length zeta in
+  let acc : [Int] = concat [lastState] (create n (lam. 0)) in
+  recursive let work : [Int] -> Int -> Int -> [Int] =
     lam acc : [Int].
-    lam zeta : [[Int]].
     lam i : Int.
     lam n : Int.
     if lti i n then
       let ii = addi i 1 in
       let here : [Int] = get zeta i in
       let acc : [Int] = set acc ii (get here (get acc i)) in
-      parallelViterbi_backwardStep acc zeta ii n
+      work acc ii n
     else acc
-end
+  in
+  work acc 0 n
 
 -- Assumptions on data:
 -- * States have been mapped to integers in range 0..n-1 (can use sequences instead of map)
 -- * Inputs have been mapped to integers in range 0..m-1 (instead of being an arbitrary type)
-let parallelViterbi : [[Int]] -> [[LogProb]] -> [LogProb] -> [[LogProb]]
+let parallelViterbi : [[Int]] -> [[Float]] -> [Float] -> [[Float]]
                    -> [Int] -> ViterbiResult =
   lam predecessors : [[Int]].
-  lam transitionProb : [[LogProb]].
-  lam initProbs : [LogProb].
-  lam outputProb : [[LogProb]].
+  lam transitionProb : [[Float]].
+  lam initProbs : [Float].
+  lam outputProb : [[Float]].
   lam inputs : [Int].
   match inputs with [x] ++ inputs then
     let numStates : Int = length predecessors in
-    let chi1 : [LogProb] =
+    let chi1 : [Float] =
       create
         numStates
         (lam state : Int.
-          probMul (getLogProb initProbs state) (getLogProb (get outputProb state) x)) in
-    let n = length inputs in
-    let acc : [[Int]] = create n (lam. create numStates (lam. 0)) in
-    let r : ViterbiForwardResult = parallelViterbi_forward chi1 acc 0 n in
+          probMul (getFloat initProbs state) (getFloat (get outputProb state) x)) in
+    let r : {chi : [Float], zeta : [[Int]]} =
+      parallelViterbi_forward predecessors transitionProb outputProb
+                              inputs chi1 in
     match r with {chi = chi, zeta = zeta} then
       let lastState = maxIndexByStateExn chi in
-      let logprob : LogProb = get chi lastState in
-      let n = length zeta in
-      let acc : [Int] = create (addi n 1) (lam. 0) in
-      let states : [Int] = reverse (parallelViterbi_backwardStep acc (reverse zeta) 0 n) in
+      let logprob : Float = get chi lastState in
+      let states : [Int] = reverse (parallelViterbi_backwardStep lastState (reverse zeta)) in
       {prob = logprob, states = states}
     else never
   else never
