@@ -126,6 +126,8 @@ let parallelViterbi : [[Int]] -> [[Float]] -> [Float] -> [[Float]]
 
 mexpr
 
+-- Nonsense calls inserted to prevent the deadcode elimination from removing
+-- the called functions.
 let result =
   parallelViterbi
     [[]]
