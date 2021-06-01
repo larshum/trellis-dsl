@@ -1,4 +1,5 @@
 type ViterbiResult = {prob : Float, states : [Int]}
+type ViterbiForwardResult = {chi : [Float], zeta : [[Int]]}
 
 let getFloat : [Float] -> Int -> Float = lam s : [Float]. lam idx : Int.
   get s idx
@@ -36,7 +37,7 @@ let maxIndexByStateExn : [Float] -> Int =
   else never
 
 let parallelViterbi_forward : [[Int]] -> [[Float]] -> [[Float]] -> [Int]
-                           -> [Float] -> {chi : [Float], zeta : [[Int]]} =
+                           -> [Float] -> ViterbiForwardResult =
   lam predecessors : [[Int]].
   lam transitionProb : [[Float]].
   lam outputProb : [[Float]].
@@ -112,7 +113,7 @@ let parallelViterbi : [[Int]] -> [[Float]] -> [Float] -> [[Float]]
         numStates
         (lam state : Int.
           probMul (getFloat initProbs state) (getFloat (get outputProb state) x)) in
-    let r : {chi : [Float], zeta : [[Int]]} =
+    let r : ViterbiForwardResult =
       parallelViterbi_forward predecessors transitionProb outputProb
                               inputs chi1 in
     match r with {chi = chi, zeta = zeta} then
