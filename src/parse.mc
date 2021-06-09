@@ -83,7 +83,7 @@ let _expr2intSeqOfSeq : Expr -> [[Int]] = _expr2seq (_expr2seq _expr2int)
 utest _expr2intSeqOfSeq (seq_ [seq_ [int_ 1, int_ 2], seq_ [int_ 3]]) with [[1,2],[3]]
 
 let _mapSidToString : Map SID a -> Map String a = lam m.
-  mapFromList cmpString (
+  mapFromSeq cmpString (
     map (lam t : (SID, a). (sidToString t.0, t.1)) (mapBindings m))
 
 let parseModel : String -> ViterbiParams = lam filename.
