@@ -54,13 +54,13 @@ let printModel = lam model : ViterbiParams.
     map (lam s2. map (stateToIndex model) (pred bases model.dMax s2)) states
   in
   strJoin "\n" [
-    int2string model.signalLevels,
-    strJoin "\n" (map (lam s : [Float]. printFloatSeq s) model.observationProbabilities),
     printFloatSeq model.duration,
     int2string model.k,
     int2string model.dMax,
     float2string model.tailFactor,
     float2string model.tailFactorComp,
+    int2string model.signalLevels,
+    strJoin "\n" (map (lam s : [Float]. strJoin " " (map float2string s)) model.observationProbabilities),
     int2string (length (get predecessors 0)),
     strJoin "\n" (map (lam s : [Int]. join (map (lam i. concat (int2string i) " ") s)) predecessors),
     strJoin "\n" (map (lam s : [Float]. join (map (lam f. concat (float2string f) " ") s))

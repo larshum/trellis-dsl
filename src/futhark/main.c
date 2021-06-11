@@ -63,29 +63,28 @@ void read_str(FILE *in, char* c) {
 }
 
 void read_model(struct futhark_context *ctx, FILE *in, viterbi_model_t *model) {
-    i64 signal_levels;
-    read_i64(in, &signal_levels);
-    f64** observation_prob = (f64**) malloc(signal_levels * sizeof(f64*));
-    for (int i = 0; i < signal_levels; i++) {
-        i64 observations;
-        read_i64(in, &observations);
-        observation_prob[i] = (f64*) malloc(observations * sizeof(f64));
-        for (int j = 0; j < observations; j++) {
-            read_f64(in, &observation_prob[i][j]);
-        }
-    }
     read_i64(in, &model->num_layers);
     f64 *duration = (f64*) malloc(model->num_layers * sizeof(f64));
     for (int i = 0; i < model->num_layers; i++) {
         read_f64(in, &duration[i]);
     }
     model->duration = futhark_new_f64_1d(ctx, duration, model->num_layers);
+    free(duration);
     read_i64(in, &model->k);
     read_i64(in, &model->d_max);
     read_f64(in, &model->tail_factor);
     read_f64(in, &model->tail_factor_comp);
-
     model->states_per_layer = (i64) pow(num_bases, model->k);
+    i64 signal_levels;
+    read_i64(in, &signal_levels);
+    model->output_prob_size = model->states_per_layer * signal_levels;
+    f64* outp = (f64*) malloc(model->output_prob_size * sizeof(f64));
+    for (int i = 0; i < model->output_prob_size; i++) {
+        read_f64(in, &outp[i]);
+    }
+    model->output_prob = futhark_new_f64_2d(ctx, outp, signal_levels, model->states_per_layer);
+    free(outp);
+
     model->num_states = model->states_per_layer * model->num_layers;
     i64 num_predecessors;
     read_i64(in, &num_predecessors);
@@ -114,20 +113,6 @@ void read_model(struct futhark_context *ctx, FILE *in, viterbi_model_t *model) {
         }
     }
     model->init_prob = futhark_new_f64_1d(ctx, init, model->num_states);
-    model->output_prob_size = model->num_states * signal_levels;
-    f64 *outp = (f64*) malloc(model->output_prob_size * sizeof(f64));
-    for (int i = 0; i < model->num_states; i++) {
-        for (int j = 0; j < signal_levels; j++) {
-            outp[i*signal_levels+j] = observation_prob[j][i % model->states_per_layer];
-        }
-    }
-    model->output_prob = futhark_new_f64_2d(ctx, outp, model->num_states, signal_levels);
-
-    for (int i = 0; i < signal_levels; i++) {
-        free(observation_prob[i]);
-    }
-    free(observation_prob);
-    free(duration);
 }
 
 void read_signals(struct futhark_context *ctx, FILE *in, viterbi_signals_t *signals) {

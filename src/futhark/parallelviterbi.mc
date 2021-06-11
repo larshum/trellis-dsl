@@ -43,8 +43,8 @@ let maxIndexByStateExn : [Float] -> Int =
   in
   (parallelReduce f (head is) (tail is)).0
 
-let parallelViterbi_forward : [[Int]] -> (Int -> Int -> Float) -> [[Float]] -> [Int]
-                           -> [Float] -> ViterbiForwardResult =
+let parallelViterbi_forward : [[Int]] -> (Int -> Int -> Float) -> (Int -> Int -> Float)
+                           -> [Int] -> [Float] -> ViterbiForwardResult =
   lam predecessors.
   lam transitionProb.
   lam outputProb.
@@ -69,7 +69,7 @@ let parallelViterbi_forward : [[Int]] -> (Int -> Int -> Float) -> [[Float]] -> [
           (lam state. maxByStateExn (logProbFrom state) (get predecessors state)) in
         let newChi = mapi
           (lam state. lam pre. probMul (logProbFrom state pre)
-                                                   (get (get outputProb state) x))
+                                       (outputProb state x))
           newZeta in
         let zeta = set zeta i newZeta in
         work newChi zeta (addi i 1) n
@@ -98,7 +98,8 @@ let parallelViterbi_backwardStep : Int -> [[Int]] -> [Int] =
 -- Assumptions on data:
 -- * States have been mapped to integers in range 0..n-1 (can use sequences instead of map)
 -- * Inputs have been mapped to integers in range 0..m-1 (instead of being an arbitrary type)
-let viterbi : [[Int]] -> (Int -> Int -> Float) -> [Float] -> [[Float]] -> [Int] -> [Int] =
+let viterbi : [[Int]] -> (Int -> Int -> Float) -> [Float]
+           -> (Int -> Int -> Float) -> [Int] -> [Int] =
   lam predecessors.
   lam transitionProb.
   lam initProbs.
@@ -111,7 +112,7 @@ let viterbi : [[Int]] -> (Int -> Int -> Float) -> [Float] -> [[Float]] -> [Int] 
     create
       numStates
       (lam state.
-        probMul (get initProbs state) (get (get outputProb state) x)) in
+        probMul (get initProbs state) (outputProb state x)) in
   let r = parallelViterbi_forward predecessors transitionProb outputProb
                                   inputs chi1 in
   match r with {chi = chi, zeta = zeta} then
@@ -152,12 +153,16 @@ let getTransitionProb : [[Float]] -> [Float] -> Int -> Int -> Int -> Float
   in
   probMul baseProb durProb
 
+let getOutputProb : [[Float]] -> Int -> Int -> Int -> Float =
+  lam outProb. lam statesPerLayer. lam state. lam input.
+  get (get outProb input) (modi state statesPerLayer)
+
 let parallelViterbi : [[Int]] -> [[Float]] -> [Float] -> [[Float]]
                    -> [Float] -> Int -> Int -> Int -> Float -> Float -> [[Int]] -> [[Int]] =
   lam predecessors.
   lam transProb.
   lam initProbs.
-  lam outputProb.
+  lam outProb.
   lam duration.
   lam k.
   lam dMax.
@@ -167,6 +172,7 @@ let parallelViterbi : [[Int]] -> [[Float]] -> [Float] -> [[Float]]
   lam inputSignals.
   let transitionProb = getTransitionProb transProb duration k dMax
                                          statesPerLayer tailFactor tailFactorComp in
+  let outputProb = getOutputProb outProb statesPerLayer in
   map
     (lam signal.
       viterbi predecessors transitionProb initProbs outputProb signal)
