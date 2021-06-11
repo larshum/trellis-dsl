@@ -1,12 +1,11 @@
-type ViterbiResult = {prob : Float, states : [Int]}
 type ViterbiForwardResult = {chi : [Float], zeta : [[Int]]}
 
 let mapi : (Int -> Int -> Float) -> [Int] -> [Float] =
   lam f. lam s.
-  -- Would like to do it the following way, but there is no function for
-  -- getting indices, and the below approach does not work because the type
-  -- checker fails to infer that the length of idxs and the result is the same
-  -- as length of s.
+  -- Would like to do it the following way (slightly better performance), but
+  -- there is no function for getting indices, and the below approach does not
+  -- work because the type checker fails to infer that the length of idxs and
+  -- the result is the same as length of s.
 
   --let idxs : [Int] = create (length s) (lam i : Int. i) in
   --let res : [Float] = parallelMap2 f idxs s in
@@ -39,15 +38,12 @@ let maxByStateExn : (Int -> Float) -> [Int] -> Int =
 let maxIndexByStateExn : [Float] -> Int =
   lam s.
   let is = create (length s) (lam i. (i, get s i)) in
-  let h = head is in
-  let t = tail is in
-  (parallelReduce
-    (lam x. lam y.
-      if gtf x.1 y.1 then x else y)
-    h
-    t).0
+  let f = lam a. lam b.
+    if gtf a.1 b.1 then a else b
+  in
+  (parallelReduce f (head is) (tail is)).0
 
-let parallelViterbi_forward : [[Int]] -> [[Float]] -> [[Float]] -> [Int]
+let parallelViterbi_forward : [[Int]] -> (Int -> Int -> Float) -> [[Float]] -> [Int]
                            -> [Float] -> ViterbiForwardResult =
   lam predecessors.
   lam transitionProb.
@@ -68,7 +64,7 @@ let parallelViterbi_forward : [[Int]] -> [[Float]] -> [[Float]] -> [Int]
         let logProbFrom =
           lam state. lam pre.
             probMul (get chi pre)
-                    (get (get transitionProb pre) state) in
+                    (transitionProb pre state) in
         let newZeta = create numStates
           (lam state. maxByStateExn (logProbFrom state) (get predecessors state)) in
         let newChi = mapi
@@ -99,40 +95,82 @@ let parallelViterbi_backwardStep : Int -> [[Int]] -> [Int] =
   in
   work acc 0 n
 
-let getProb : ViterbiResult -> Float =
-  lam result : ViterbiResult.
-  result.prob
-
-let getStates : ViterbiResult -> [Int] =
-  lam result : ViterbiResult.
-  result.states
-
 -- Assumptions on data:
 -- * States have been mapped to integers in range 0..n-1 (can use sequences instead of map)
 -- * Inputs have been mapped to integers in range 0..m-1 (instead of being an arbitrary type)
-let parallelViterbi : [[Int]] -> [[Float]] -> [Float] -> [[Float]]
-                   -> [Int] -> ViterbiResult =
-  lam predecessors : [[Int]].
-  lam transitionProb : [[Float]].
-  lam initProbs : [Float].
-  lam outputProb : [[Float]].
-  lam inputs : [Int].
-  match inputs with [x] ++ inputs then
-    let numStates = length predecessors in
-    let chi1 =
-      create
-        numStates
-        (lam state.
-          probMul (get initProbs state) (get (get outputProb state) x)) in
-    let r = parallelViterbi_forward predecessors transitionProb outputProb
-                                    inputs chi1 in
-    match r with {chi = chi, zeta = zeta} then
-      let lastState = maxIndexByStateExn chi in
-      let logprob = get chi lastState in
-      let states = reverse (parallelViterbi_backwardStep lastState (reverse zeta)) in
-      {prob = logprob, states = states}
-    else never
+let viterbi : [[Int]] -> (Int -> Int -> Float) -> [Float] -> [[Float]] -> [Int] -> [Int] =
+  lam predecessors.
+  lam transitionProb.
+  lam initProbs.
+  lam outputProb.
+  lam inputs.
+  let x = head inputs in
+  let inputs = tail inputs in
+  let numStates = length predecessors in
+  let chi1 =
+    create
+      numStates
+      (lam state.
+        probMul (get initProbs state) (get (get outputProb state) x)) in
+  let r = parallelViterbi_forward predecessors transitionProb outputProb
+                                  inputs chi1 in
+  match r with {chi = chi, zeta = zeta} then
+    let lastState = maxIndexByStateExn chi in
+    let logprob = get chi lastState in
+    let states = reverse (parallelViterbi_backwardStep lastState (reverse zeta)) in
+    states
   else never
+
+let stateLayer : Int -> Int -> Int =
+  lam statesPerLayer. lam state.
+  divi state statesPerLayer
+
+let pow : Int -> Int -> Int = lam b. lam e.
+  recursive let work : Int -> Int -> Int -> Int = lam acc. lam i. lam n.
+    if lti i n then
+      let acc = muli acc b in
+      work acc (addi i 1) n
+    else acc
+  in
+  work b 0 e
+
+let getTransitionProb : [[Float]] -> [Float] -> Int -> Int -> Int -> Float
+                     -> Float -> Int -> Int -> Float =
+  lam transProbs. lam duration. lam k. lam dMax. lam statesPerLayer.
+  lam tailFactor. lam tailFactorComp. lam fromState. lam toState.
+  let stateIdx = modi fromState statesPerLayer in
+  let baseIdx = modi (divi toState (pow 4 (subi k 1))) 4 in
+  let baseProb = get (get transProbs baseIdx) stateIdx in
+  let durProb =
+    if eqi (stateLayer statesPerLayer fromState) 0 then
+      get duration (subi (stateLayer statesPerLayer toState) 0)
+    else if eqi (stateLayer statesPerLayer fromState) dMax then
+      if eqi (stateLayer statesPerLayer toState) dMax then
+        tailFactor
+      else tailFactorComp
+    else 0.0
+  in
+  probMul baseProb durProb
+
+let parallelViterbi : [[Int]] -> [[Float]] -> [Float] -> [[Float]]
+                   -> [Float] -> Int -> Int -> Int -> Float -> Float -> [[Int]] -> [[Int]] =
+  lam predecessors.
+  lam transProb.
+  lam initProbs.
+  lam outputProb.
+  lam duration.
+  lam k.
+  lam dMax.
+  lam statesPerLayer.
+  lam tailFactor.
+  lam tailFactorComp.
+  lam inputSignals.
+  let transitionProb = getTransitionProb transProb duration k dMax
+                                         statesPerLayer tailFactor tailFactorComp in
+  map
+    (lam signal.
+      viterbi predecessors transitionProb initProbs outputProb signal)
+    inputSignals
 
 mexpr
 
@@ -144,7 +182,11 @@ let result =
     [[]]
     []
     [[]]
-    [] in
-let p = getProb result in
-let states = getStates result in
+    []
+    0
+    0
+    0
+    0.0
+    0.0
+    [[]] in
 ()

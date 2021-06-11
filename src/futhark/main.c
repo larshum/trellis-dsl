@@ -1,5 +1,6 @@
 #include <math.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 #include "viterbi.h"
 
@@ -8,33 +9,34 @@ typedef double f64;
 
 typedef struct viterbi_model_s {
     i64 num_states;
+    i64 num_layers;
     i64 predecessors_size;
     i64 transition_prob_size;
     i64 output_prob_size;
+    i64 k;
+    i64 d_max;
+    i64 states_per_layer;
+    f64 tail_factor;
+    f64 tail_factor_comp;
+    struct futhark_f64_1d *duration;
     struct futhark_i64_2d *predecessors;
     struct futhark_f64_2d *transition_prob;
     struct futhark_f64_1d *init_prob;
     struct futhark_f64_2d *output_prob;
 } viterbi_model_t;
 
-typedef struct viterbi_signal_s {
-    i64 id_size;
-    char *id;
-    i64 data_size;
-    struct futhark_i64_1d *data;
-} viterbi_signal_t;
+typedef struct viterbi_signals_s {
+    i64 num_signals;
+    i64 max_data_size;
+    i64 *data_size;
+    char **id;
+    struct futhark_i64_2d *data;
+} viterbi_signals_t;
 
 typedef struct instances_s {
-    size_t num_signals;
     viterbi_model_t model;
-    viterbi_signal_t *signals;
+    viterbi_signals_t signals;
 } instances_t;
-
-typedef struct viterbi_result_s {
-    f64 prob;
-    i64 *states;
-    size_t states_size;
-} viterbi_result_t;
 
 const size_t num_bases = 4;
 const char bases[] = {'A', 'C', 'G', 'T'};
@@ -72,22 +74,19 @@ void read_model(struct futhark_context *ctx, FILE *in, viterbi_model_t *model) {
             read_f64(in, &observation_prob[i][j]);
         }
     }
-    i64 num_layers;
-    read_i64(in, &num_layers);
-    f64 *duration = (f64*) malloc(num_layers * sizeof(f64));
-    for (int i = 0; i < num_layers; i++) {
+    read_i64(in, &model->num_layers);
+    f64 *duration = (f64*) malloc(model->num_layers * sizeof(f64));
+    for (int i = 0; i < model->num_layers; i++) {
         read_f64(in, &duration[i]);
     }
-    i64 k;
-    read_i64(in, &k);
-    i64 d_max;
-    read_i64(in, &d_max);
-    f64 tail_factor, tail_factor_comp;
-    read_f64(in, &tail_factor);
-    read_f64(in, &tail_factor_comp);
+    model->duration = futhark_new_f64_1d(ctx, duration, model->num_layers);
+    read_i64(in, &model->k);
+    read_i64(in, &model->d_max);
+    read_f64(in, &model->tail_factor);
+    read_f64(in, &model->tail_factor_comp);
 
-    i64 states_per_layer = (i64) pow(num_bases, k);
-    model->num_states = states_per_layer * num_layers;
+    model->states_per_layer = (i64) pow(num_bases, model->k);
+    model->num_states = model->states_per_layer * model->num_layers;
     i64 num_predecessors;
     read_i64(in, &num_predecessors);
     model->predecessors_size = model->num_states * num_predecessors;
@@ -99,19 +98,17 @@ void read_model(struct futhark_context *ctx, FILE *in, viterbi_model_t *model) {
     }
     model->predecessors = futhark_new_i64_2d(ctx, preds, model->num_states, num_predecessors);
     free(preds);
-    model->transition_prob_size = model->num_states * model->num_states;
+    model->transition_prob_size = 4 * model->states_per_layer;
     f64 *trans = (f64*) malloc(model->transition_prob_size * sizeof(f64));
-    for (int i = 0; i < model->num_states; i++) {
-        for (int j = 0; j < model->num_states; j++) {
-            read_f64(in, &trans[i*model->num_states+j]);
-        }
+    for (int i = 0; i < model->transition_prob_size; i++) {
+        read_f64(in, &trans[i]);
     }
-    model->transition_prob = futhark_new_f64_2d(ctx, trans, model->num_states, model->num_states);
+    model->transition_prob = futhark_new_f64_2d(ctx, trans, 4, model->states_per_layer);
     free(trans);
     f64 *init = (f64*) malloc(model->num_states * sizeof(f64));
     for (int i = 0; i < model->num_states; i++) {
-        if (i / states_per_layer == 0) {
-            init[i] = 1.0 / states_per_layer;
+        if (i / model->states_per_layer == 0) {
+            init[i] = 1.0 / model->states_per_layer;
         } else {
             init[i] = -(1.0 / 0.0);
         }
@@ -121,7 +118,7 @@ void read_model(struct futhark_context *ctx, FILE *in, viterbi_model_t *model) {
     f64 *outp = (f64*) malloc(model->output_prob_size * sizeof(f64));
     for (int i = 0; i < model->num_states; i++) {
         for (int j = 0; j < signal_levels; j++) {
-            outp[i*signal_levels+j] = observation_prob[j][i % states_per_layer];
+            outp[i*signal_levels+j] = observation_prob[j][i % model->states_per_layer];
         }
     }
     model->output_prob = futhark_new_f64_2d(ctx, outp, model->num_states, signal_levels);
@@ -133,28 +130,31 @@ void read_model(struct futhark_context *ctx, FILE *in, viterbi_model_t *model) {
     free(duration);
 }
 
-void read_signal(struct futhark_context *ctx, FILE *in, viterbi_signal_t *signal) {
-    read_i64(in, &signal->id_size);
-    signal->id = (char*) malloc((signal->id_size + 1) * sizeof(char));
-    read_str(in, signal->id);
-    read_i64(in, &signal->data_size);
-    i64 *a = (i64*) malloc(signal->data_size * sizeof(i64));
-    for (int i = 0; i < signal->data_size; i++) {
-        read_i64(in, &a[i]);
+void read_signals(struct futhark_context *ctx, FILE *in, viterbi_signals_t *signals) {
+    read_i64(in, &signals->num_signals);
+    read_i64(in, &signals->max_data_size);
+    i64 *data = (i64*) malloc(signals->num_signals * signals->max_data_size * sizeof(i64));
+    memset(data, 0, signals->num_signals * signals->max_data_size * sizeof(i64));
+    signals->data_size = (i64*) malloc(signals->num_signals * sizeof(i64));
+    signals->id = (char**) malloc(signals->num_signals * sizeof(char*));
+    for (int i = 0; i < signals->num_signals; i++) {
+        i64 id_len;
+        read_i64(in, &id_len);
+        signals->id[i] = (char*) malloc((id_len + 1) * sizeof(char));
+        read_str(in, signals->id[i]);
+        read_i64(in, &signals->data_size[i]);
+        for (int j = 0; j < signals->data_size[i]; j++) {
+            read_i64(in, &data[i*signals->max_data_size+j]);
+        }
     }
-    signal->data = futhark_new_i64_1d(ctx, a, signal->data_size);
-    free(a);
+    signals->data = futhark_new_i64_2d(ctx, data, signals->num_signals, signals->max_data_size);
+    free(data);
 }
 
 instances_t read_problem_instances(struct futhark_context *ctx, FILE *model, FILE *signals) {
     instances_t inst;
     read_model(ctx, model, &inst.model);
-    read_i64(signals, &inst.num_signals);
-    inst.signals = (viterbi_signal_t*) malloc(inst.num_signals * sizeof(viterbi_signal_t));
-    for (int i = 0; i < inst.num_signals; i++) {
-        read_signal(ctx, signals, &inst.signals[i]);
-    }
-    printf("Read Viterbi model and %ld signals\n", inst.num_signals);
+    read_signals(ctx, signals, &inst.signals);
     return inst;
 }
 
@@ -179,11 +179,6 @@ void print_states(i64 *states, size_t length) {
     printf("\n");
 }
 
-void print_result_layered_model(viterbi_result_t *result) {
-    print_states(result->states, result->states_size);
-    printf("%lf\n", result->prob);
-}
-
 void free_model(struct futhark_context *ctx, viterbi_model_t *model) {
     futhark_free_i64_2d(ctx, model->predecessors);
     futhark_free_f64_2d(ctx, model->transition_prob);
@@ -191,41 +186,52 @@ void free_model(struct futhark_context *ctx, viterbi_model_t *model) {
     futhark_free_f64_2d(ctx, model->output_prob);
 }
 
-void free_signal(struct futhark_context *ctx, viterbi_signal_t *signal) {
-    futhark_free_i64_1d(ctx, signal->data);
-    free(signal->id);
+void free_signals(struct futhark_context *ctx, viterbi_signals_t *signals) {
+    for (int i = 0; i < signals->num_signals; i++) {
+        free(signals->id[i]);
+    }
+    free(signals->id);
+    free(signals->data_size);
+    futhark_free_i64_2d(ctx, signals->data);
 }
 
-void free_result(viterbi_result_t *result) {
-    free(result->states);
+void free_instance(struct futhark_context *ctx, instances_t *inst) {
+    free_model(ctx, &inst->model);
+    free_signals(ctx, &inst->signals);
 }
 
-viterbi_result_t call_viterbi(struct futhark_context *ctx,
-        viterbi_model_t *model, viterbi_signal_t *signal) {
-    printf("Running viterbi on input signal %s\n", signal->id);
+void parallel_viterbi(struct futhark_context *ctx, instances_t *inst) {
+    viterbi_model_t *model = &inst->model;
+    viterbi_signals_t *signals = &inst->signals;
+    printf("Running viterbi in parallel on %ld input signals\n", signals->num_signals);
+
     clock_t begin = clock();
-    struct futhark_opaque_v_ViterbiResult *fut_result;
-    int v = futhark_entry_v_parallelViterbi(ctx, &fut_result, model->predecessors,
-        model->transition_prob, model->init_prob, model->output_prob, signal->data);
-    futhark_context_sync(ctx);
+    struct futhark_i64_2d *fut_result;
+    int v;
+    v = futhark_entry_v_parallelViterbi(ctx, &fut_result, model->predecessors,
+            model->transition_prob, model->init_prob, model->output_prob,
+            model->duration, model->k, model->d_max, model->states_per_layer,
+            model->tail_factor, model->tail_factor_comp, signals->data);
     if (v != 0) {
         printf("Futhark error: %s\n", futhark_context_get_error(ctx));
         exit(v);
     }
-
-    viterbi_result_t result;
-    futhark_entry_v_getProb(ctx, &result.prob, fut_result);
-    result.states_size = signal->data_size;
-    result.states = (i64*) malloc(result.states_size * sizeof(i64));
-    struct futhark_i64_1d* states = futhark_new_i64_1d(ctx, result.states, result.states_size);
-    futhark_entry_v_getStates(ctx, &states, fut_result);
-    futhark_context_sync(ctx);
-    futhark_values_i64_1d(ctx, states, result.states);
-    futhark_free_i64_1d(ctx, states);
-    futhark_free_opaque_v_ViterbiResult(ctx, fut_result);
+    v = futhark_context_sync(ctx);
+    if (v != 0) {
+        printf("Futhark error: %s\n", futhark_context_get_error(ctx));
+        exit(v);
+    }
     clock_t end = clock();
-    printf("Viterbi on %s took: %lf\n", signal->id, (double)(end-begin)/CLOCKS_PER_SEC);
-    return result;
+    printf("Viterbi time: %lf\n", (double)(end-begin)/CLOCKS_PER_SEC);
+
+    i64 *data = (i64*) malloc(signals->num_signals * signals->max_data_size * sizeof(i64));
+    futhark_values_i64_2d(ctx, fut_result, data);
+    futhark_free_i64_2d(ctx, fut_result);
+    for (int i = 0; i < signals->num_signals; i++) {
+        printf("%s\n", signals->id[i]);
+        print_states(&data[i * signals->max_data_size], signals->data_size[i]);
+    }
+    free(data);
 }
 
 int main(int argc, char** argv) {
@@ -239,14 +245,9 @@ int main(int argc, char** argv) {
     struct futhark_context* ctx = futhark_context_new(config);
 
     instances_t inst = read_problem_instances(ctx, model, signals);
-    for (int i = 0; i < inst.num_signals; i++) {
-        viterbi_result_t result = call_viterbi(ctx, &inst.model, &inst.signals[i]);
-        print_result_layered_model(&result);
-        free_result(&result);
-        free_signal(ctx, &inst.signals[i]);
-    }
+    parallel_viterbi(ctx, &inst);
 
-    free_model(ctx, &inst.model);
+    free_instance(ctx, &inst);
     futhark_context_free(ctx);
     futhark_context_config_free(config);
     return 0;

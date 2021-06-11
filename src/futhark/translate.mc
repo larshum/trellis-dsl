@@ -44,23 +44,6 @@ let indexToState = lam model : ViterbiParams. lam i : Int.
   let base3 = indexToBase (modi (divi kmerIndex (muli (length bases) (length bases))) (length bases)) in
   {kmer = [base1, base2, base3], layer = layer}
 
-let transitionProb = lam model : ViterbiParams. lam s1 : State. lam s2 : State.
-  let stateIdx = modi (stateToIndex model s1) (statesPerLayer model) in
-  let baseIdx = baseToIndex (last s2.kmer) in
-  let baseProb = get (get model.transitionProbabilities baseIdx) stateIdx in
-  let durProb =
-    if eqi s1.layer 1 then
-      get model.duration (subi s2.layer 1)
-    else if eqi s1.layer model.dMax then
-      if eqi s2.layer model.dMax then
-        model.tailFactor
-      else if eqi s2.layer (subi model.dMax 1) then
-        model.tailFactorComp
-      else divf (negf 1.0) 0.0
-    else log1
-  in
-  probMul baseProb durProb
-
 let cmpState : ViterbiParams -> State -> State -> Int =
   lam model : ViterbiParams. lam s1 : State. lam s2 : State.
   subi (stateToIndex model s1) (stateToIndex model s2)
@@ -69,9 +52,6 @@ let printModel = lam model : ViterbiParams.
   let states = sort (cmpState model) (states bases model.k model.dMax) in
   let predecessors =
     map (lam s2. map (stateToIndex model) (pred bases model.dMax s2)) states
-  in
-  let transitions =
-    map (lam s1. map (lam s2. transitionProb model s1 s2) states) states
   in
   strJoin "\n" [
     int2string model.signalLevels,
@@ -83,7 +63,8 @@ let printModel = lam model : ViterbiParams.
     float2string model.tailFactorComp,
     int2string (length (get predecessors 0)),
     strJoin "\n" (map (lam s : [Int]. join (map (lam i. concat (int2string i) " ") s)) predecessors),
-    strJoin "\n" (map (lam s : [Float]. join (map (lam f. concat (float2string f) " ") s)) transitions)
+    strJoin "\n" (map (lam s : [Float]. join (map (lam f. concat (float2string f) " ") s))
+                      model.transitionProbabilities)
  ]
 
 let printSignal = lam signal : Signal.
@@ -93,12 +74,18 @@ let printSignal = lam signal : Signal.
     printIntSeq signal.values
   ]
 
+let compareSignalLength : Signal -> Signal -> Int = lam s1. lam s2.
+  subi (length s1.values) (length s2.values)
+
 let printSignals = lam signals : [Signal].
-  join [
-    int2string (length signals),
-    "\n",
-    strJoin "\n" (map printSignal signals)
-  ]
+  match max compareSignalLength signals with Some longestSignal then
+    let signal : Signal = longestSignal in
+    strJoin "\n" [
+      int2string (length signals),
+      int2string (length signal.values),
+      strJoin "\n" (map printSignal signals)
+    ]
+  else error "Empty signal input"
 
 mexpr
 
