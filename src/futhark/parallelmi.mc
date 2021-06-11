@@ -5,10 +5,14 @@ include "mexpr/patterns.mc"
 include "mexpr/symbolize.mc"
 include "mexpr/type-annot.mc"
 include "mexpr/utesttrans.mc"
+include "mexpr/rewrite/rules.mc"
+include "mexpr/rewrite/parallel-patterns.mc"
+include "mexpr/rewrite/tailrecursion.mc"
 
 lang PMExprCompile =
   BootParser +
-  MExprSym + MExprTypeAnnot + MExprUtestTrans + MExprPatternKeywordMaker +
+  MExprSym + MExprTypeAnnot + MExprUtestTrans + MExprParallelKeywordMaker +
+  MExprRewrite + MExprTailRecursion + MExprParallelPatterns +
   FutharkGenerate
 end
 
@@ -25,7 +29,7 @@ let parallelKeywords = [
 
 let keywordsSymEnv =
   {symEnvEmpty with varEnv =
-    mapFromList
+    mapFromSeq
       cmpString
       (map (lam s. (s, nameSym s)) parallelKeywords)}
 
@@ -40,6 +44,12 @@ let printFutharkAst = lam ast : FutProg.
   use FutharkPrettyPrint in
   printLn (expr2str ast)
 
+let patternTransformation = lam ast : Expr.
+  use PMExprCompile in
+  let ast = rewriteTerm ast in
+  let ast = tailRecursive ast in
+  insertParallelPatterns ast
+
 let compile = lam file.
   use PMExprCompile in
   let ast = parseMCoreFile parallelKeywords file in
@@ -47,6 +57,7 @@ let compile = lam file.
   let ast = typeAnnot ast in
   let ast = makeKeywords [] ast in
   let ast = utestStrip ast in
+  let ast = patternTransformation ast in
   let futharkAst = generateProgram ast in
   printFutharkAst futharkAst
 
