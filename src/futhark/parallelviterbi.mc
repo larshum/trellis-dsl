@@ -2,18 +2,7 @@ type ViterbiForwardResult = {chi : [Float], zeta : [[Int]]}
 
 let mapi : (Int -> Int -> Float) -> [Int] -> [Float] =
   lam f. lam s.
-  -- Would like to do it the following way (slightly better performance), but
-  -- there is no function for getting indices, and the below approach does not
-  -- work because the type checker fails to infer that the length of idxs and
-  -- the result is the same as length of s.
-
-  --let idxs : [Int] = create (length s) (lam i : Int. i) in
-  --let res : [Float] = parallelMap2 f idxs s in
-  --res
-
-  let f = lam x. f x.0 x.1 in
-  let is = create (length s) (lam i. (i, get s i)) in
-  parallelMap f is
+  parallelMap2 f (indices s) s
 
 let probMul = addf
 
