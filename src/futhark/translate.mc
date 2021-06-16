@@ -87,9 +87,18 @@ let printSignals = lam signals : [Signal].
     ]
   else error "Empty signal input"
 
+let printReferences = lam references : [Reference].
+  let printGenome = lam genome : [Int]. map indexToBase genome in
+  strJoin "\n"
+    (map
+      (lam ref : Reference. join [ref.id, "\n", printGenome ref.genome])
+      references)
+
 mexpr
 
 let model = parseModel (get argv 1) in
 let signals = parseSignals (get argv 2) in
+let references = parseReferences (get argv 3) in
 writeFile "model.txt" (printModel model);
-writeFile "signals.txt" (printSignals signals)
+writeFile "signals.txt" (printSignals signals);
+writeFile "reference.txt" (printReferences references)

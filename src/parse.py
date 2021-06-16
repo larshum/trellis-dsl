@@ -114,8 +114,8 @@ def write_reference(output_file, references):
             , genomes = {genomes}
             }}
             """
-            .format(keys=format_list(references['keys'][0:1]),
-                    genomes=references['genomes'][0:1])
+            .format(keys=format_list(references['keys'][:]),
+                    genomes=references['genomes'][:])
         )
 
 
