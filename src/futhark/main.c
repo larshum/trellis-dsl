@@ -41,6 +41,10 @@ typedef struct instances_s {
 const size_t num_bases = 4;
 const char bases[] = {'A', 'C', 'G', 'T'};
 
+// hard coded batch parameters for now
+const i64 batch_size = 1024;
+const i64 batch_overlap = 128;
+
 void read_i64(FILE *in, i64* i) {
     if (fscanf(in, "%ld", i) != 1) {
         fprintf(stderr, "Expected i64\n");
@@ -118,6 +122,15 @@ void read_model(struct futhark_context *ctx, FILE *in, viterbi_model_t *model) {
 void read_signals(struct futhark_context *ctx, FILE *in, viterbi_signals_t *signals) {
     read_i64(in, &signals->num_signals);
     read_i64(in, &signals->max_data_size);
+    i64 batch_output_size = batch_size - batch_overlap;
+    if (batch_output_size < 0) {
+        fprintf(stderr, "Batch size must be larger than batch overlap\n");
+        exit(1);
+    }
+    // add padding to fit all batch computations in signal arrays
+    signals->max_data_size =
+        ((signals->max_data_size + batch_output_size + 1) / batch_output_size) * batch_output_size +
+        batch_overlap;
     i64 *data = (i64*) malloc(signals->num_signals * signals->max_data_size * sizeof(i64));
     memset(data, 0, signals->num_signals * signals->max_data_size * sizeof(i64));
     signals->data_size = (i64*) malloc(signals->num_signals * sizeof(i64));
@@ -196,7 +209,8 @@ void parallel_viterbi(struct futhark_context *ctx, instances_t *inst) {
     v = futhark_entry_v_parallelViterbi(ctx, &fut_result, model->predecessors,
             model->transition_prob, model->init_prob, model->output_prob,
             model->duration, model->k, model->d_max, model->states_per_layer,
-            model->tail_factor, model->tail_factor_comp, signals->data);
+            model->tail_factor, model->tail_factor_comp, batch_size,
+            batch_overlap, signals->data);
     if (v != 0) {
         printf("Futhark error: %s\n", futhark_context_get_error(ctx));
         exit(v);
@@ -209,12 +223,13 @@ void parallel_viterbi(struct futhark_context *ctx, instances_t *inst) {
     clock_t end = clock();
     printf("Viterbi time: %lf\n", (double)(end-begin)/CLOCKS_PER_SEC);
 
-    i64 *data = (i64*) malloc(signals->num_signals * signals->max_data_size * sizeof(i64));
+    i64 output_size = signals->max_data_size - batch_overlap;
+    i64 *data = (i64*) malloc(signals->num_signals * output_size * sizeof(i64));
     futhark_values_i64_2d(ctx, fut_result, data);
     futhark_free_i64_2d(ctx, fut_result);
     for (int i = 0; i < signals->num_signals; i++) {
         printf("%s\n", signals->id[i]);
-        print_states(&data[i * signals->max_data_size], signals->data_size[i]);
+        print_states(&data[i * output_size], signals->data_size[i]);
     }
     free(data);
 }

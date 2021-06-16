@@ -117,7 +117,6 @@ let viterbi : [[Int]] -> (Int -> Int -> Float) -> [Float]
                                   inputs chi1 in
   match r with {chi = chi, zeta = zeta} then
     let lastState = maxIndexByStateExn chi in
-    let logprob = get chi lastState in
     let states = reverse (parallelViterbi_backwardStep lastState (reverse zeta)) in
     states
   else never
@@ -127,13 +126,7 @@ let stateLayer : Int -> Int -> Int =
   divi state statesPerLayer
 
 let pow : Int -> Int -> Int = lam b. lam e.
-  recursive let work : Int -> Int -> Int -> Int = lam acc. lam i. lam n.
-    if lti i n then
-      let acc = muli acc b in
-      work acc (addi i 1) n
-    else acc
-  in
-  work b 0 e
+  parallelReduce muli 1 (create e (lam. b))
 
 let getTransitionProb : [[Float]] -> [Float] -> Int -> Int -> Int -> Float
                      -> Float -> Int -> Int -> Float =
@@ -157,8 +150,34 @@ let getOutputProb : [[Float]] -> Int -> Int -> Int -> Float =
   lam outProb. lam statesPerLayer. lam state. lam input.
   get (get outProb input) (modi state statesPerLayer)
 
+let batchedViterbi : [[Int]] -> (Int -> Int -> Float) -> [Float]
+                  -> (Int -> Int -> Float) -> Int -> Int -> [Int] -> [Int] =
+  lam predecessors.
+  lam transitionProb.
+  lam initProbs.
+  lam outputProb.
+  lam batchSize.
+  lam batchOverlap.
+  lam signal.
+  let batchOutputSize = subi batchSize batchOverlap in
+  let nbatches = divi (subi (length signal) batchOverlap) batchOutputSize in
+  let output = create nbatches (lam. create batchOutputSize (lam. 0)) in
+  let out =
+    recursive let work : [[Int]] -> Int -> Int -> [[Int]] = lam acc. lam i. lam n.
+      if lti i n then
+        let offset = muli i batchOutputSize in
+        let batch = subsequence signal offset batchSize in
+        let acc = set acc i (viterbi predecessors transitionProb initProbs outputProb batch) in
+        work acc (addi i 1) n
+      else acc
+    in
+    work output 0 nbatches
+  in
+  flatten out
+
 let parallelViterbi : [[Int]] -> [[Float]] -> [Float] -> [[Float]]
-                   -> [Float] -> Int -> Int -> Int -> Float -> Float -> [[Int]] -> [[Int]] =
+                   -> [Float] -> Int -> Int -> Int -> Float -> Float
+                   -> Int -> Int -> [[Int]] -> [[Int]] =
   lam predecessors.
   lam transProb.
   lam initProbs.
@@ -169,13 +188,16 @@ let parallelViterbi : [[Int]] -> [[Float]] -> [Float] -> [[Float]]
   lam statesPerLayer.
   lam tailFactor.
   lam tailFactorComp.
+  lam batchSize.
+  lam batchOverlap.
   lam inputSignals.
   let transitionProb = getTransitionProb transProb duration k dMax
                                          statesPerLayer tailFactor tailFactorComp in
   let outputProb = getOutputProb outProb statesPerLayer in
   map
     (lam signal.
-      viterbi predecessors transitionProb initProbs outputProb signal)
+      batchedViterbi predecessors transitionProb initProbs outputProb
+                     batchSize batchOverlap signal)
     inputSignals
 
 mexpr
@@ -194,5 +216,7 @@ let result =
     0
     0.0
     0.0
+    0
+    0
     [[]] in
 ()
