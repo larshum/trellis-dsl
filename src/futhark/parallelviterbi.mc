@@ -167,13 +167,14 @@ let batchedViterbi : [[Int]] -> (Int -> Int -> Float) -> [Float]
       if lti i n then
         let offset = muli i batchOutputSize in
         let batch = subsequence signal offset batchSize in
-        let acc = set acc i (viterbi predecessors transitionProb initProbs outputProb batch) in
+        let out = viterbi predecessors transitionProb initProbs outputProb batch in
+        let acc = set acc i (subsequence out 0 batchOutputSize) in
         work acc (addi i 1) n
       else acc
     in
     work output 0 nbatches
   in
-  flatten out
+  subsequence (flatten out) 0 (muli batchOutputSize nbatches)
 
 let parallelViterbi : [[Int]] -> [[Float]] -> [Float] -> [[Float]]
                    -> [Float] -> Int -> Int -> Int -> Float -> Float
@@ -194,10 +195,16 @@ let parallelViterbi : [[Int]] -> [[Float]] -> [Float] -> [[Float]]
   let transitionProb = getTransitionProb transProb duration k dMax
                                          statesPerLayer tailFactor tailFactorComp in
   let outputProb = getOutputProb outProb statesPerLayer in
+  let batchOutputSize = subi batchSize batchOverlap in
+  let nbatches = divf (subf (length (head inputSignals)) batchOverlap)
+                      batchOutputSize in
+  let n = muli batchOutputSize nbatches in
   map
     (lam signal.
-      batchedViterbi predecessors transitionProb initProbs outputProb
-                     batchSize batchOverlap signal)
+      subsequence
+        (batchedViterbi predecessors transitionProb initProbs outputProb
+                        batchSize batchOverlap signal)
+        0 n)
     inputSignals
 
 mexpr
