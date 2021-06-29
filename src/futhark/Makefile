@@ -28,4 +28,4 @@ parallelmi: parallelmi.mc
 
 clean:
 	rm -f model.txt signals.txt parallelmi parallelviterbi translate \
-			viterbi*
+			viterbi* evaluate
