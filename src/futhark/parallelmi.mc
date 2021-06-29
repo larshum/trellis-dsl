@@ -1,18 +1,18 @@
 include "futhark/generate.mc"
 include "futhark/pprint.mc"
 include "mexpr/boot-parser.mc"
-include "mexpr/patterns.mc"
 include "mexpr/symbolize.mc"
 include "mexpr/type-annot.mc"
 include "mexpr/utesttrans.mc"
 include "mexpr/rewrite/rules.mc"
-include "mexpr/rewrite/parallel-patterns.mc"
+include "mexpr/rewrite/parallel-keywords.mc"
+include "mexpr/rewrite/parallel-rewrite.mc"
 include "mexpr/rewrite/tailrecursion.mc"
 
 lang PMExprCompile =
   BootParser +
   MExprSym + MExprTypeAnnot + MExprUtestTrans + MExprParallelKeywordMaker +
-  MExprRewrite + MExprTailRecursion + MExprParallelPatterns +
+  MExprANF + MExprRewrite + MExprTailRecursion + MExprParallelPattern +
   FutharkGenerate
 end
 
@@ -35,6 +35,12 @@ let keywordsSymEnv =
       cmpString
       (map (lam s. (s, nameSym s)) parallelKeywords)}
 
+let parallelPatterns = [
+  getMapPattern (),
+  getReducePattern (),
+  getForPattern ()
+]
+
 let mergeWithKeywordsSymEnv = lam symEnv : SymEnv.
   {symEnv with varEnv = mapUnion symEnv.varEnv keywordsSymEnv.varEnv}
 
@@ -50,7 +56,8 @@ let patternTransformation = lam ast : Expr.
   use PMExprCompile in
   let ast = rewriteTerm ast in
   let ast = tailRecursive ast in
-  insertParallelPatterns ast
+  let ast = normalizeTerm ast in
+  parallelPatternRewrite parallelPatterns ast
 
 let compile = lam file.
   use PMExprCompile in
