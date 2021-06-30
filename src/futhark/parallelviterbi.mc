@@ -1,5 +1,3 @@
-type ViterbiForwardResult = {chi : [Float], zeta : [[Int]]}
-
 let mapi : (Int -> Int -> Float) -> [Int] -> [Float] =
   lam f. lam s.
   parallelMap2 f (indices s) s
@@ -10,17 +8,14 @@ let maxByStateExn : (Int -> Float) -> [Int] -> Int =
   lam f. lam s.
   let h = head s in
   let n = length s in
+  let max = lam a. lam b. if gtf (f a) (f b) then a else b in
   recursive let work : Int -> Int -> Int -> Int =
-    lam max. lam i. lam n.
-    if lti i n then
+    lam acc. lam i. lam n.
+    if eqi i n then acc
+    else
       let x = get s i in
-      let m =
-        if gtf (f max) (f x) then
-          max
-        else x
-      in
+      let m = max acc x in
       work m (addi i 1) n
-    else max
   in
   work h 0 n
 
@@ -33,7 +28,7 @@ let maxIndexByStateExn : [Float] -> Int =
   (parallelReduce f (head is) (tail is)).0
 
 let parallelViterbi_forward : [[Int]] -> (Int -> Int -> Float) -> (Int -> Int -> Float)
-                           -> [Int] -> [Float] -> ViterbiForwardResult =
+                           -> [Int] -> [Float] -> {chi : [Float], zeta : [[Int]]} =
   lam predecessors.
   lam transitionProb.
   lam outputProb.
@@ -42,29 +37,28 @@ let parallelViterbi_forward : [[Int]] -> (Int -> Int -> Float) -> (Int -> Int ->
   let numStates = length predecessors in
   let n = length inputs in
   let zeta = create n (lam. create numStates (lam. 0)) in
-  recursive let work : [Float] -> [[Int]] -> Int -> Int
+  recursive let work : {chi : [Float], zeta : [[Int]]} -> Int -> Int
                     -> {chi : [Float], zeta : [[Int]]} =
-      lam chi.
-      lam zeta.
-      lam i.
-      lam n.
-      if lti i n then
-        let x = get inputs i in
-        let logProbFrom =
-          lam state. lam pre.
-            probMul (get chi pre)
-                    (transitionProb pre state) in
-        let newZeta = create numStates
-          (lam state. maxByStateExn (logProbFrom state) (get predecessors state)) in
-        let newChi = mapi
-          (lam state. lam pre. probMul (logProbFrom state pre)
-                                       (outputProb state x))
-          newZeta in
-        let zeta = set zeta i newZeta in
-        work newChi zeta (addi i 1) n
-      else {chi = chi, zeta = zeta}
+    lam acc.
+    lam i.
+    lam n.
+    if eqi i n then acc
+    else
+      let x = get inputs i in
+      let logProbFrom =
+        lam state. lam pre.
+          probMul (get acc.chi pre)
+                  (transitionProb pre state) in
+      let newZeta = create numStates
+        (lam state. maxByStateExn (logProbFrom state) (get predecessors state)) in
+      let newChi = mapi
+        (lam state. lam pre. probMul (logProbFrom state pre)
+                                     (outputProb state x))
+        newZeta in
+      let zeta = set acc.zeta i newZeta in
+      work {chi = newChi, zeta = zeta} (addi i 1) n
   in
-  work chi1 zeta 0 n
+  work {chi = chi1, zeta = zeta} 0 n
 
 let parallelViterbi_backwardStep : Int -> [[Int]] -> [Int] =
   lam lastState.
@@ -75,12 +69,12 @@ let parallelViterbi_backwardStep : Int -> [[Int]] -> [Int] =
     lam acc.
     lam i.
     lam n.
-    if lti i n then
+    if eqi i n then acc
+    else
       let ii = addi i 1 in
       let here = get zeta i in
       let acc = set acc ii (get here (get acc i)) in
       work acc ii n
-    else acc
   in
   work acc 0 n
 
@@ -153,13 +147,13 @@ let batchedViterbi : [[Int]] -> (Int -> Int -> Float) -> [Float]
   let output = create nbatches (lam. create batchOutputSize (lam. 0)) in
   let out =
     recursive let work : [[Int]] -> Int -> Int -> [[Int]] = lam acc. lam i. lam n.
-      if lti i n then
+      if eqi i n then acc
+      else
         let offset = muli i batchOutputSize in
         let batch = subsequence signal offset batchSize in
         let out = viterbi predecessors transitionProb initProbs outputProb batch in
         let acc = set acc i (subsequence out 0 batchOutputSize) in
         work acc (addi i 1) n
-      else acc
     in
     work output 0 nbatches
   in
@@ -198,21 +192,22 @@ let parallelViterbi : [[Int]] -> [[Float]] -> [Float] -> [[Float]]
 
 mexpr
 
--- Nonsense calls inserted to prevent the deadcode elimination from removing
--- the called functions.
-let result =
+-- Nonsense utest to prevent the deadcode elimination from removing the called
+-- functions. The utest will be ignored by 'parallelmi'.
+utest
   parallelViterbi
-    [[]]
-    [[]]
-    []
-    [[]]
-    []
-    0
-    0
-    0
-    0.0
-    0.0
-    0
-    0
-    [[]] in
+  [[]]
+  [[]]
+  []
+  [[]]
+  []
+  0
+  0
+  0
+  0.0
+  0.0
+  0
+  0
+  [[]]
+with () in
 ()

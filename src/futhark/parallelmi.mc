@@ -1,5 +1,6 @@
 include "futhark/generate.mc"
 include "futhark/pprint.mc"
+include "futhark/record-inline.mc"
 include "mexpr/boot-parser.mc"
 include "mexpr/symbolize.mc"
 include "mexpr/type-annot.mc"
@@ -13,7 +14,7 @@ lang PMExprCompile =
   BootParser +
   MExprSym + MExprTypeAnnot + MExprUtestTrans + MExprParallelKeywordMaker +
   MExprANF + MExprRewrite + MExprTailRecursion + MExprParallelPattern +
-  FutharkGenerate
+  FutharkRecordInline + FutharkGenerate
 end
 
 let parallelKeywords = [
@@ -41,25 +42,30 @@ let parallelPatterns = [
   getForPattern ()
 ]
 
-let mergeWithKeywordsSymEnv = lam symEnv : SymEnv.
+let mergeWithKeywordsSymEnv : SymEnv -> SymEnv = lam symEnv.
   {symEnv with varEnv = mapUnion symEnv.varEnv keywordsSymEnv.varEnv}
 
-let printMExprAst = lam ast : Expr.
+let printMExprAst : Expr -> Unit = lam ast.
   use MExprPrettyPrint in
   printLn (expr2str ast)
 
-let printFutharkAst = lam ast : FutProg.
+let printFutharkAst : FutProg -> Unit = lam ast.
   use FutharkPrettyPrint in
   printLn (expr2str ast)
 
-let patternTransformation = lam ast : Expr.
+let patternTransformation : Expr -> Expr = lam ast.
   use PMExprCompile in
   let ast = rewriteTerm ast in
   let ast = tailRecursive ast in
   let ast = normalizeTerm ast in
   parallelPatternRewrite parallelPatterns ast
 
-let compile = lam file.
+let futharkTranslation : Expr -> FutProg = lam ast.
+  use PMExprCompile in
+  let ast = inlineRecords ast in
+  generateProgram ast
+
+let compile : String -> Unit = lam file.
   use PMExprCompile in
   let ast = parseMCoreFile parallelKeywords file in
   let ast = symbolizeExpr keywordsSymEnv ast in
@@ -67,7 +73,7 @@ let compile = lam file.
   let ast = makeKeywords [] ast in
   let ast = utestStrip ast in
   let ast = patternTransformation ast in
-  let futharkAst = generateProgram ast in
+  let futharkAst = futharkTranslation ast in
   printFutharkAst futharkAst
 
 mexpr
