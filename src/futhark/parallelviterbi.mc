@@ -1,8 +1,6 @@
--- When the work function of mapi is translated into the parallelMap2 pattern,
--- it will not use the accumulator value. We use this variable instead of an
--- inlined sequence to prevent type errors in Futhark due to the ANF
--- transformation leaving the empty sequence initialization in the mapi
--- function.
+-- This variable is a workaround to avoid type errors due to the empty sequence
+-- being used as the accumulator of a function that is transformed into a
+-- parallel pattern that does not make use of the accumulator.
 let emptySeq : [Float] = []
 
 let mapi : (Int -> Int -> Float) -> [Int] -> [Float] =
