@@ -38,6 +38,7 @@ let keywordsSymEnv =
 
 let parallelPatterns = [
   getMapPattern (),
+  getMap2Pattern (),
   getReducePattern (),
   getForPattern ()
 ]

@@ -1,6 +1,17 @@
+-- When the work function of mapi is translated into the parallelMap2 pattern,
+-- it will not use the accumulator value. We use this variable instead of an
+-- inlined sequence to prevent type errors in Futhark due to the ANF
+-- transformation leaving the empty sequence initialization in the mapi
+-- function.
+let emptySeq : [Float] = []
+
 let mapi : (Int -> Int -> Float) -> [Int] -> [Float] =
   lam f. lam s.
-  parallelMap2 f (indices s) s
+  recursive let work = lam acc. lam sa. lam sb.
+    if null sa then acc
+    else if null sb then acc
+    else work (snoc acc (f (head sa) (head sb))) (tail sa) (tail sb)
+  in work emptySeq (indices s) s
 
 let probMul = addf
 
@@ -9,8 +20,7 @@ let maxByStateExn : (Int -> Float) -> [Int] -> Int =
   let h = head s in
   let n = length s in
   let max = lam a. lam b. if gtf (f a) (f b) then a else b in
-  recursive let work : Int -> Int -> Int -> Int =
-    lam acc. lam i. lam n.
+  recursive let work = lam acc. lam i. lam n.
     if eqi i n then acc
     else
       let x = get s i in
@@ -25,7 +35,11 @@ let maxIndexByStateExn : [Float] -> Int =
   let f = lam a. lam b.
     if gtf a.1 b.1 then a else b
   in
-  (parallelReduce f (head is) (tail is)).0
+  recursive let work = lam acc. lam s.
+    if null s then acc
+    else work (f acc (head s)) (tail s)
+  in
+  (work (head is) (tail is)).0
 
 let parallelViterbi_forward : [[Int]] -> (Int -> Int -> Float) -> (Int -> Int -> Float)
                            -> [Int] -> [Float] -> {chi : [Float], zeta : [[Int]]} =
@@ -37,8 +51,7 @@ let parallelViterbi_forward : [[Int]] -> (Int -> Int -> Float) -> (Int -> Int ->
   let numStates = length predecessors in
   let n = length inputs in
   let zeta = create n (lam. create numStates (lam. 0)) in
-  recursive let work : {chi : [Float], zeta : [[Int]]} -> Int -> Int
-                    -> {chi : [Float], zeta : [[Int]]} =
+  recursive let work =
     lam acc.
     lam i.
     lam n.
@@ -64,11 +77,8 @@ let parallelViterbi_backwardStep : Int -> [[Int]] -> [Int] =
   lam lastState.
   lam zeta.
   let n = length zeta in
-  let acc : [Int] = concat [lastState] (create n (lam. 0)) in
-  recursive let work : [Int] -> Int -> Int -> [Int] =
-    lam acc.
-    lam i.
-    lam n.
+  let acc = concat [lastState] (create n (lam. 0)) in
+  recursive let work = lam acc. lam i. lam n.
     if eqi i n then acc
     else
       let ii = addi i 1 in
@@ -109,7 +119,10 @@ let stateLayer : Int -> Int -> Int =
   divi state statesPerLayer
 
 let pow : Int -> Int -> Int = lam b. lam e.
-  parallelReduce muli 1 (create e (lam. b))
+  recursive let work = lam acc. lam s.
+    if null s then acc
+    else work (muli (head s) acc) (tail s)
+  in work 1 (create e (lam. b))
 
 let getTransitionProb : [[Float]] -> [Float] -> Int -> Int -> Int -> Float
                      -> Float -> Int -> Int -> Float =
@@ -146,7 +159,7 @@ let batchedViterbi : [[Int]] -> (Int -> Int -> Float) -> [Float]
   let nbatches = divi (subi (length signal) batchOverlap) batchOutputSize in
   let output = create nbatches (lam. create batchOutputSize (lam. 0)) in
   let out =
-    recursive let work : [[Int]] -> Int -> Int -> [[Int]] = lam acc. lam i. lam n.
+    recursive let work = lam acc. lam i. lam n.
       if eqi i n then acc
       else
         let offset = muli i batchOutputSize in
