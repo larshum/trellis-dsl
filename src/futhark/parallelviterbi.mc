@@ -17,12 +17,11 @@ let maxByStateExn : (Int -> Float) -> [Int] -> Int =
   lam f. lam s.
   let h = head s in
   let n = length s in
-  let max = lam a. lam b. if gtf (f a) (f b) then a else b in
   recursive let work = lam acc. lam i. lam n.
     if eqi i n then acc
     else
       let x = get s i in
-      let m = max acc x in
+      let m = if gtf (f acc) (f x) then acc else x in
       work m (addi i 1) n
   in
   work h 0 n
