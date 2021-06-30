@@ -27,5 +27,5 @@ parallelmi: parallelmi.mc
 	mi compile $^
 
 clean:
-	rm -f model.txt signals.txt parallelmi parallelviterbi translate \
-			viterbi* evaluate
+	rm -f model.txt signals.txt reference.txt parallelmi parallelviterbi \
+			translate viterbi* evaluate
