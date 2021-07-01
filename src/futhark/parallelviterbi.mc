@@ -1,15 +1,10 @@
--- This variable is a workaround to avoid type errors due to the empty sequence
--- being used as the accumulator of a function that is transformed into a
--- parallel pattern that does not make use of the accumulator.
-let emptySeq : [Float] = []
-
 let mapi : (Int -> Int -> Float) -> [Int] -> [Float] =
   lam f. lam s.
   recursive let work = lam acc. lam sa. lam sb.
     if null sa then acc
     else if null sb then acc
     else work (snoc acc (f (head sa) (head sb))) (tail sa) (tail sb)
-  in work emptySeq (indices s) s
+  in work [] (indices s) s
 
 let probMul = addf
 

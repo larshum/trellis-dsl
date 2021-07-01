@@ -1,20 +1,22 @@
 include "futhark/generate.mc"
 include "futhark/pprint.mc"
-include "futhark/record-inline.mc"
 include "mexpr/boot-parser.mc"
 include "mexpr/symbolize.mc"
 include "mexpr/type-annot.mc"
 include "mexpr/utesttrans.mc"
-include "mexpr/rewrite/rules.mc"
+include "mexpr/rewrite/deadcode.mc"
 include "mexpr/rewrite/parallel-keywords.mc"
 include "mexpr/rewrite/parallel-rewrite.mc"
+include "mexpr/rewrite/record-inline.mc"
+include "mexpr/rewrite/rules.mc"
 include "mexpr/rewrite/tailrecursion.mc"
 
 lang PMExprCompile =
   BootParser +
   MExprSym + MExprTypeAnnot + MExprUtestTrans + MExprParallelKeywordMaker +
   MExprANF + MExprRewrite + MExprTailRecursion + MExprParallelPattern +
-  FutharkRecordInline + FutharkGenerate
+  MExprParallelRecordInline + MExprParallelDeadcodeElimination +
+  FutharkGenerate
 end
 
 let parallelKeywords = [
@@ -64,6 +66,7 @@ let patternTransformation : Expr -> Expr = lam ast.
 let futharkTranslation : Expr -> FutProg = lam ast.
   use PMExprCompile in
   let ast = inlineRecords ast in
+  let ast = deadcodeEliminationToplevel ast in
   generateProgram ast
 
 let compile : String -> Unit = lam file.
