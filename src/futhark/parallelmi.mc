@@ -28,8 +28,7 @@ let parallelKeywords = [
   "parallelPartition",
   "parallelAll",
   "parallelAny",
-  "flatten",
-  "indices"
+  "flatten"
 ]
 
 let keywordsSymEnv =

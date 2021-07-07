@@ -4,7 +4,7 @@ let mapi : (Int -> Int -> Float) -> [Int] -> [Float] =
     if null sa then acc
     else if null sb then acc
     else work (snoc acc (f (head sa) (head sb))) (tail sa) (tail sb)
-  in work [] (indices s) s
+  in work [] (create (length s) (lam i. i)) s
 
 let probMul = addf
 
