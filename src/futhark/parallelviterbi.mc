@@ -125,7 +125,7 @@ let getTransitionProb : [[Float]] -> [Float] -> Int -> Int -> Int -> Float
   let baseProb = get (get transProbs baseIdx) stateIdx in
   let durProb =
     if eqi (stateLayer statesPerLayer fromState) 0 then
-      get duration (subi (stateLayer statesPerLayer toState) 0)
+      get duration (stateLayer statesPerLayer toState)
     else if eqi (stateLayer statesPerLayer fromState) dMax then
       if eqi (stateLayer statesPerLayer toState) dMax then
         tailFactor
@@ -151,18 +151,25 @@ let batchedViterbi : [[Int]] -> (Int -> Int -> Float) -> [Float]
   let nbatches = divi (subi (length signal) batchOverlap) batchOutputSize in
   let output = create nbatches (lam. create batchOutputSize (lam. 0)) in
   let out =
-    recursive let work = lam acc. lam i. lam n.
-      if eqi i n then acc
-      else
-        let offset = muli i batchOutputSize in
-        let batch = subsequence signal offset batchSize in
-        let out = viterbi predecessors transitionProb initProbs outputProb batch in
-        let acc = set acc i (subsequence out 0 batchOutputSize) in
-        work acc (addi i 1) n
+    recursive
+      let loop = lam acc. lam i. lam n.
+        if eqi i n then acc
+        else
+          let offset = muli i batchOutputSize in
+          let batch = subsequence signal offset batchSize in
+          let out = viterbi predecessors transitionProb initProbs outputProb batch in
+          let acc = set acc i (subsequence out 0 batchOutputSize) in
+          loop acc (addi i 1) n
+      let flatMapId = lam acc. lam s.
+        if null s then acc
+        else
+          let h = head s in
+          let x = subsequence h 0 batchOutputSize in
+          flatMapId (concat acc x) (tail s)
     in
-    work output 0 nbatches
+    flatMapId [] (loop output 0 nbatches)
   in
-  subsequence (flatten out) 0 (muli batchOutputSize nbatches)
+  subsequence out 0 (muli batchOutputSize nbatches)
 
 let parallelViterbi : [[Int]] -> [[Float]] -> [Float] -> [[Float]]
                    -> [Float] -> Int -> Int -> Int -> Float -> Float
