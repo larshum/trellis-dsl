@@ -20,6 +20,63 @@ lang PMExprCompile =
   FutharkGenerate
 end
 
+lang PMExprPrettyPrint = MExprPrettyPrint + MExprParallelKeywordMaker
+  sem isAtomic =
+  | TmParallelMap _ -> false
+  | TmParallelMap2 _ -> false
+  | TmParallelFlatMap _ -> false
+  | TmParallelReduce _ -> false
+  | TmParallelScan _ -> false
+  | TmParallelFilter _ -> false
+  | TmParallelPartition _ -> false
+  | TmParallelAll _ -> false
+  | TmParallelAny _ -> false
+  | TmSequentialFor _ -> false
+
+  sem pprintCode (indent : Int) (env : PprintEnv) =
+  | TmParallelMap t ->
+    match printParen indent env t.f with (env, f) then
+      match pprintCode indent env t.as with (env, as) then
+        (env, join ["parallelMap (", f, ") (", as, ")"])
+      else never
+    else never
+  | TmParallelMap2 t ->
+    match printParen indent env t.f with (env, f) then
+      match pprintCode indent env t.as with (env, as) then
+        match pprintCode indent env t.bs with (env, bs) then
+          (env, join ["parallelMap2 (", f, ") (", as, ") (", bs, ")"])
+        else never
+      else never
+    else never
+  | TmParallelFlatMap t ->
+    match printParen indent env t.f with (env, f) then
+      match pprintCode indent env t.as with (env, as) then
+        (env, join ["parallelFlatMap (", f, ") (", as, ")"])
+      else never
+    else never
+  | TmParallelReduce t ->
+    match printParen indent env t.f with (env, f) then
+      match pprintCode indent env t.ne with (env, ne) then
+        match pprintCode indent env t.as with (env, as) then
+          (env, join ["parallelReduce (", f, ") (", ne, ") (", as, ")"])
+        else never
+      else never
+    else never
+  | TmParallelScan t -> never
+  | TmParallelFilter t -> never
+  | TmParallelPartition t -> never
+  | TmParallelAll t -> never
+  | TmParallelAny t -> never
+  | TmSequentialFor t ->
+    match printParen indent env t.body with (env, body) then
+      match pprintCode indent env t.init with (env, init) then
+        match pprintCode indent env t.n with (env, n) then
+          (env, join ["for (", init, ") (", n, ")", pprintNewline indent, body])
+        else never
+      else never
+    else never
+end
+
 let parallelKeywords = [
   "parallelMap",
   "parallelMap2",
@@ -28,7 +85,7 @@ let parallelKeywords = [
   "parallelFilter",
   "parallelPartition",
   "parallelAll",
-  "parallelAny",
+  "parallelAny"
 ]
 
 let keywordsSymEnv =
@@ -47,8 +104,8 @@ let parallelPatterns = [
 let mergeWithKeywordsSymEnv : SymEnv -> SymEnv = lam symEnv.
   {symEnv with varEnv = mapUnion symEnv.varEnv keywordsSymEnv.varEnv}
 
-let printMExprAst : Expr -> Unit = lam ast.
-  use MExprPrettyPrint in
+let printPMExprAst : Expr -> Unit = lam ast.
+  use PMExprPrettyPrint in
   printLn (expr2str ast)
 
 let printFutharkAst : FutProg -> Unit = lam ast.
