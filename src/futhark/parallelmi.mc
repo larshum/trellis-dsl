@@ -1,7 +1,7 @@
 include "futhark/generate.mc"
 include "futhark/pprint.mc"
 include "mexpr/boot-parser.mc"
-include "mexpr/common-subexpression-elimination.mc"
+include "mexpr/cse.mc"
 include "mexpr/symbolize.mc"
 include "mexpr/type-annot.mc"
 include "mexpr/utesttrans.mc"
@@ -116,8 +116,8 @@ let patternTransformation : Expr -> Expr = lam ast.
   use PMExprCompile in
   let ast = rewriteTerm ast in
   let ast = tailRecursive ast in
-  let ast = normalizeTerm ast in
   let ast = cse ast in
+  let ast = normalizeTerm ast in
   parallelPatternRewrite parallelPatterns ast
 
 let futharkTranslation : Expr -> FutProg = lam ast.
