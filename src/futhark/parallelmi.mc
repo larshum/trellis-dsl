@@ -116,7 +116,7 @@ let patternTransformation : Expr -> Expr = lam ast.
   use PMExprCompile in
   let ast = rewriteTerm ast in
   let ast = tailRecursive ast in
-  let ast = cse ast in
+  let ast = cseGlobal ast in
   let ast = normalizeTerm ast in
   parallelPatternRewrite parallelPatterns ast
 
