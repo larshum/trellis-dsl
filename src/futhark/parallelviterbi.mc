@@ -12,14 +12,15 @@ let maxByStateExn : (Int -> Float) -> [Int] -> Int =
   lam f. lam s.
   let h = head s in
   let n = length s in
-  recursive let work = lam acc. lam i. lam n.
-    if eqi i n then acc
+  recursive let work = lam acc. lam idx.
+    if null idx then acc
     else
+      let i = head idx in
       let x = get s i in
       let m = if gtf (f acc) (f x) then acc else x in
-      work m (addi i 1) n
+      work m (tail idx)
   in
-  work h 0 n
+  work h (create n (lam i. i))
 
 let maxIndexByStateExn : [Float] -> Int =
   lam s.
@@ -43,12 +44,10 @@ let parallelViterbi_forward : [[Int]] -> (Int -> Int -> Float) -> (Int -> Int ->
   let numStates = length predecessors in
   let n = length inputs in
   let zeta = create n (lam. create numStates (lam. 0)) in
-  recursive let work =
-    lam acc.
-    lam i.
-    lam n.
-    if eqi i n then acc
+  recursive let work = lam acc. lam idx.
+    if null idx then acc
     else
+      let i = head idx in
       let x = get inputs i in
       let logProbFrom =
         lam state. lam pre.
@@ -61,24 +60,25 @@ let parallelViterbi_forward : [[Int]] -> (Int -> Int -> Float) -> (Int -> Int ->
                                      (outputProb state x))
         newZeta in
       let zeta = set acc.zeta i newZeta in
-      work {chi = newChi, zeta = zeta} (addi i 1) n
+      work {chi = newChi, zeta = zeta} (tail idx)
   in
-  work {chi = chi1, zeta = zeta} 0 n
+  work {chi = chi1, zeta = zeta} (create n (lam i. i))
 
 let parallelViterbi_backwardStep : Int -> [[Int]] -> [Int] =
   lam lastState.
   lam zeta.
   let n = length zeta in
   let acc = concat [lastState] (create n (lam. 0)) in
-  recursive let work = lam acc. lam i. lam n.
-    if eqi i n then acc
+  recursive let work = lam acc. lam idx.
+    if null idx then acc
     else
+      let i = head idx in
       let ii = addi i 1 in
       let here = get zeta i in
       let acc = set acc ii (get here (get acc i)) in
-      work acc ii n
+      work acc (tail idx)
   in
-  work acc 0 n
+  work acc (create n (lam i. i))
 
 -- Assumptions on data:
 -- * States have been mapped to integers in range 0..n-1 (can use sequences instead of map)
@@ -152,14 +152,15 @@ let batchedViterbi : [[Int]] -> (Int -> Int -> Float) -> [Float]
   let output = create nbatches (lam. create batchOutputSize (lam. 0)) in
   let out =
     recursive
-      let loop = lam acc. lam i. lam n.
-        if eqi i n then acc
+      let loop = lam acc. lam idx.
+        if null idx then acc
         else
+          let i = head idx in
           let offset = muli i batchOutputSize in
           let batch = subsequence signal offset batchSize in
           let out = viterbi predecessors transitionProb initProbs outputProb batch in
           let acc = set acc i (subsequence out 0 batchOutputSize) in
-          loop acc (addi i 1) n
+          loop acc (tail idx)
       let flatMapId = lam acc. lam s.
         if null s then acc
         else
@@ -167,7 +168,7 @@ let batchedViterbi : [[Int]] -> (Int -> Int -> Float) -> [Float]
           let x = subsequence h 0 batchOutputSize in
           flatMapId (concat acc x) (tail s)
     in
-    flatMapId [] (loop output 0 nbatches)
+    flatMapId [] (loop output (create nbatches (lam i. i)))
   in
   subsequence out 0 (muli batchOutputSize nbatches)
 

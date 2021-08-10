@@ -1,5 +1,6 @@
 include "futhark/generate.mc"
 include "futhark/pprint.mc"
+include "futhark/record-inline.mc"
 include "mexpr/boot-parser.mc"
 include "mexpr/cse.mc"
 include "mexpr/symbolize.mc"
@@ -8,7 +9,6 @@ include "mexpr/utesttrans.mc"
 include "mexpr/rewrite/deadcode.mc"
 include "mexpr/rewrite/parallel-keywords.mc"
 include "mexpr/rewrite/parallel-rewrite.mc"
-include "mexpr/rewrite/record-inline.mc"
 include "mexpr/rewrite/rules.mc"
 include "mexpr/rewrite/tailrecursion.mc"
 
@@ -16,8 +16,8 @@ lang PMExprCompile =
   BootParser +
   MExprSym + MExprTypeAnnot + MExprUtestTrans + MExprParallelKeywordMaker +
   MExprANF + MExprRewrite + MExprTailRecursion + MExprParallelPattern +
-  MExprParallelRecordInline + MExprCSE + MExprParallelDeadcodeElimination +
-  FutharkGenerate
+  MExprCSE + MExprParallelDeadcodeElimination +
+  FutharkGenerate + FutharkRecordInline
 end
 
 lang PMExprPrettyPrint = MExprPrettyPrint + MExprParallelKeywordMaker
@@ -31,7 +31,6 @@ lang PMExprPrettyPrint = MExprPrettyPrint + MExprParallelKeywordMaker
   | TmParallelPartition _ -> false
   | TmParallelAll _ -> false
   | TmParallelAny _ -> false
-  | TmSequentialFor _ -> false
 
   sem pprintCode (indent : Int) (env : PprintEnv) =
   | TmParallelMap t ->
@@ -67,14 +66,6 @@ lang PMExprPrettyPrint = MExprPrettyPrint + MExprParallelKeywordMaker
   | TmParallelPartition t -> never
   | TmParallelAll t -> never
   | TmParallelAny t -> never
-  | TmSequentialFor t ->
-    match printParen indent env t.body with (env, body) then
-      match pprintCode indent env t.init with (env, init) then
-        match pprintCode indent env t.n with (env, n) then
-          (env, join ["for (", init, ") (", n, ")", pprintNewline indent, body])
-        else never
-      else never
-    else never
 end
 
 let parallelKeywords = [
@@ -97,8 +88,7 @@ let keywordsSymEnv =
 let parallelPatterns = [
   getMapPattern (),
   getMap2Pattern (),
-  getReducePattern (),
-  getForPattern ()
+  getReducePattern ()
 ]
 
 let printPMExprAst : Expr -> Unit = lam ast.
@@ -119,9 +109,9 @@ let patternTransformation : Expr -> Expr = lam ast.
 
 let futharkTranslation : Expr -> FutProg = lam ast.
   use PMExprCompile in
-  let ast = inlineRecords ast in
   let ast = deadcodeEliminationToplevel ast in
-  generateProgram ast
+  let futharkAst : FutProg = generateProgram ast in
+  inlineRecords futharkAst
 
 let compile : String -> Unit = lam file.
   use PMExprCompile in
