@@ -101,9 +101,6 @@ let parallelPatterns = [
   getForPattern ()
 ]
 
-let mergeWithKeywordsSymEnv : SymEnv -> SymEnv = lam symEnv.
-  {symEnv with varEnv = mapUnion symEnv.varEnv keywordsSymEnv.varEnv}
-
 let printPMExprAst : Expr -> Unit = lam ast.
   use PMExprPrettyPrint in
   printLn (expr2str ast)
