@@ -102,8 +102,7 @@ let viterbi : [[Int]] -> (Int -> Int -> Float) -> [Float]
                                   inputs chi1 in
   match r with {chi = chi, zeta = zeta} then
     let lastState = maxIndexByStateExn chi in
-    let states = reverse (parallelViterbi_backwardStep lastState (reverse zeta)) in
-    states
+    reverse (parallelViterbi_backwardStep lastState (reverse zeta))
   else never
 
 let stateLayer : Int -> Int -> Int =
@@ -150,27 +149,24 @@ let batchedViterbi : [[Int]] -> (Int -> Int -> Float) -> [Float]
   let batchOutputSize = subi batchSize batchOverlap in
   let nbatches = divi (subi (length signal) batchOverlap) batchOutputSize in
   let output = create nbatches (lam. create batchOutputSize (lam. 0)) in
-  let out =
-    recursive
-      let loop = lam acc. lam idx.
-        if null idx then acc
-        else
-          let i = head idx in
-          let offset = muli i batchOutputSize in
-          let batch = subsequence signal offset batchSize in
-          let out = viterbi predecessors transitionProb initProbs outputProb batch in
-          let acc = set acc i (subsequence out 0 batchOutputSize) in
-          loop acc (tail idx)
-      let flatMapId = lam acc. lam s.
-        if null s then acc
-        else
-          let h = head s in
-          let x = subsequence h 0 batchOutputSize in
-          flatMapId (concat acc x) (tail s)
-    in
-    flatMapId [] (loop output (create nbatches (lam i. i)))
+  recursive
+    let loop = lam acc. lam idx.
+      if null idx then acc
+      else
+        let i = head idx in
+        let offset = muli i batchOutputSize in
+        let batch = subsequence signal offset batchSize in
+        let out = viterbi predecessors transitionProb initProbs outputProb batch in
+        let acc = set acc i (subsequence out 0 batchOutputSize) in
+        loop acc (tail idx)
+    let flatMapId = lam acc. lam s.
+      if null s then acc
+      else
+        let h = head s in
+        let x = h in
+        flatMapId (concat acc x) (tail s)
   in
-  subsequence out 0 (muli batchOutputSize nbatches)
+  flatMapId [] (loop output (create nbatches (lam i. i)))
 
 let parallelViterbi : [[Int]] -> [[Float]] -> [Float] -> [[Float]]
                    -> [Float] -> Int -> Int -> Int -> Float -> Float

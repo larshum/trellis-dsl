@@ -1,4 +1,6 @@
+include "futhark/deadcode.mc"
 include "futhark/generate.mc"
+include "futhark/length-parameterize.mc"
 include "futhark/pprint.mc"
 include "futhark/record-inline.mc"
 include "mexpr/boot-parser.mc"
@@ -6,7 +8,6 @@ include "mexpr/cse.mc"
 include "mexpr/symbolize.mc"
 include "mexpr/type-annot.mc"
 include "mexpr/utesttrans.mc"
-include "mexpr/rewrite/deadcode.mc"
 include "mexpr/rewrite/parallel-keywords.mc"
 include "mexpr/rewrite/parallel-rewrite.mc"
 include "mexpr/rewrite/rules.mc"
@@ -16,8 +17,9 @@ lang PMExprCompile =
   BootParser +
   MExprSym + MExprTypeAnnot + MExprUtestTrans + MExprParallelKeywordMaker +
   MExprANF + MExprRewrite + MExprTailRecursion + MExprParallelPattern +
-  MExprCSE + MExprParallelDeadcodeElimination +
-  FutharkGenerate + FutharkRecordInline
+  MExprCSE +
+  FutharkGenerate + FutharkRecordInline + FutharkDeadcodeElimination +
+  FutharkLengthParameterize
 end
 
 lang PMExprPrettyPrint = MExprPrettyPrint + MExprParallelKeywordMaker
@@ -109,9 +111,10 @@ let patternTransformation : Expr -> Expr = lam ast.
 
 let futharkTranslation : Expr -> FutProg = lam ast.
   use PMExprCompile in
-  let ast = deadcodeEliminationToplevel ast in
-  let futharkAst : FutProg = generateProgram ast in
-  inlineRecords futharkAst
+  let ast = generateProgram ast in
+  let ast = inlineRecords ast in
+  let ast = deadcodeElimination ast in
+  parameterizeLength ast
 
 let compile : String -> Unit = lam file.
   use PMExprCompile in
