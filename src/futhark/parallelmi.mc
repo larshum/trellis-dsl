@@ -10,6 +10,7 @@ include "mexpr/type-annot.mc"
 include "mexpr/utesttrans.mc"
 include "mexpr/rewrite/parallel-keywords.mc"
 include "mexpr/rewrite/parallel-rewrite.mc"
+include "mexpr/rewrite/recursion-elimination.mc"
 include "mexpr/rewrite/rules.mc"
 include "mexpr/rewrite/tailrecursion.mc"
 
@@ -17,7 +18,7 @@ lang PMExprCompile =
   BootParser +
   MExprSym + MExprTypeAnnot + MExprUtestTrans + MExprParallelKeywordMaker +
   MExprANF + MExprRewrite + MExprTailRecursion + MExprParallelPattern +
-  MExprCSE +
+  MExprCSE + PMExprRecursionElimination +
   FutharkGenerate + FutharkRecordInline + FutharkDeadcodeElimination +
   FutharkLengthParameterize
 end
@@ -111,7 +112,10 @@ let patternTransformation : Expr -> Expr = lam ast.
 
 let futharkTranslation : Expr -> FutProg = lam ast.
   use PMExprCompile in
-  let ast = generateProgram ast in
+  -- Eliminate recursion before translating PMExpr -> Futhark
+  let ast : Expr = eliminateRecursion ast in
+
+  let ast : FutharkAst = generateProgram ast in
   let ast = inlineRecords ast in
   let ast = deadcodeElimination ast in
   parameterizeLength ast
