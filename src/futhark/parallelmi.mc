@@ -1,4 +1,5 @@
 include "futhark/deadcode.mc"
+include "futhark/function-restrictions.mc"
 include "futhark/generate.mc"
 include "futhark/length-parameterize.mc"
 include "futhark/pprint.mc"
@@ -19,8 +20,8 @@ lang PMExprCompile =
   MExprSym + MExprTypeAnnot + MExprUtestTrans + MExprParallelKeywordMaker +
   MExprANF + MExprRewrite + MExprTailRecursion + MExprParallelPattern +
   MExprCSE + PMExprRecursionElimination +
-  FutharkGenerate + FutharkRecordInline + FutharkDeadcodeElimination +
-  FutharkLengthParameterize
+  FutharkGenerate + FutharkFunctionRestrictions + FutharkRecordInline +
+  FutharkDeadcodeElimination + FutharkLengthParameterize
 end
 
 lang PMExprPrettyPrint = MExprPrettyPrint + MExprParallelKeywordMaker
@@ -104,6 +105,7 @@ let printFutharkAst : FutProg -> Unit = lam ast.
 
 let patternTransformation : Expr -> Expr = lam ast.
   use PMExprCompile in
+  let ast = eliminateRecursion ast in
   let ast = rewriteTerm ast in
   let ast = tailRecursive ast in
   let ast = cseGlobal ast in
@@ -112,10 +114,8 @@ let patternTransformation : Expr -> Expr = lam ast.
 
 let futharkTranslation : Expr -> FutProg = lam ast.
   use PMExprCompile in
-  -- Eliminate recursion before translating PMExpr -> Futhark
-  let ast : Expr = eliminateRecursion ast in
-
-  let ast : FutharkAst = generateProgram ast in
+  let ast = generateProgram ast in
+  reportFutharkFunctionViolations ast;
   let ast = inlineRecords ast in
   let ast = deadcodeElimination ast in
   parameterizeLength ast
@@ -125,8 +125,8 @@ let compile : String -> Unit = lam file.
   let ast = parseMCoreFile parallelKeywords file in
   let ast = symbolizeExpr keywordsSymEnv ast in
   let ast = typeAnnot ast in
-  let ast = makeKeywords [] ast in
   let ast = utestStrip ast in
+  let ast = makeKeywords [] ast in
   let ast = patternTransformation ast in
   let futharkAst = futharkTranslation ast in
   printFutharkAst futharkAst
