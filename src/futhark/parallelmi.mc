@@ -32,9 +32,6 @@ lang PMExprPrettyPrint = MExprPrettyPrint + MExprParallelKeywordMaker
   | TmParallelReduce _ -> false
   | TmParallelScan _ -> false
   | TmParallelFilter _ -> false
-  | TmParallelPartition _ -> false
-  | TmParallelAll _ -> false
-  | TmParallelAny _ -> false
 
   sem pprintCode (indent : Int) (env : PprintEnv) =
   | TmParallelMap t ->
@@ -67,9 +64,6 @@ lang PMExprPrettyPrint = MExprPrettyPrint + MExprParallelKeywordMaker
     else never
   | TmParallelScan t -> never
   | TmParallelFilter t -> never
-  | TmParallelPartition t -> never
-  | TmParallelAll t -> never
-  | TmParallelAny t -> never
 end
 
 let parallelKeywords = [
@@ -77,10 +71,7 @@ let parallelKeywords = [
   "parallelMap2",
   "parallelReduce",
   "parallelScan",
-  "parallelFilter",
-  "parallelPartition",
-  "parallelAll",
-  "parallelAny"
+  "parallelFilter"
 ]
 
 let keywordsSymEnv =
@@ -105,12 +96,12 @@ let printFutharkAst : FutProg -> Unit = lam ast.
 
 let patternTransformation : Expr -> Expr = lam ast.
   use PMExprCompile in
-  let ast = eliminateRecursion ast in
   let ast = rewriteTerm ast in
   let ast = tailRecursive ast in
   let ast = cseGlobal ast in
   let ast = normalizeTerm ast in
-  parallelPatternRewrite parallelPatterns ast
+  let ast = parallelPatternRewrite parallelPatterns ast in
+  eliminateRecursion ast
 
 let futharkTranslation : Expr -> FutProg = lam ast.
   use PMExprCompile in
