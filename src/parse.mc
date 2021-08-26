@@ -142,7 +142,7 @@ let parseReferences : String -> [Reference] = lam filename.
     let keys = _expr2strSeq (mapFindWithExn "keys" bindings) in
     let genomes = _expr2intSeqOfSeq (mapFindWithExn "genomes" bindings) in
 
-    zipWith (lam k. lam g. {id = k, genomes = g}) keys genomes
+    zipWith (lam k. lam g. {id = k, genome = g}) keys genomes
   else error "Expected record"
 
 mexpr
