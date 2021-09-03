@@ -1,3 +1,7 @@
+include "translate.mc"
+
+type ViterbiForwardResult = {chi : [Int], zeta : [[Int]]}
+
 let mapi : (Int -> Int -> Float) -> [Int] -> [Float] =
   lam f. lam s.
   recursive let work = lam acc. lam sa. lam sb.
@@ -25,14 +29,15 @@ let maxByStateExn : (Int -> Float) -> [Int] -> Int =
 let maxIndexByStateExn : [Float] -> Int =
   lam s.
   let is = create (length s) (lam i. (i, get s i)) in
-  let f = lam a. lam b.
+  let f : (Int, Float) -> (Int, Float) -> (Int, Float) = lam a. lam b.
     if gtf a.1 b.1 then a else b
   in
   recursive let work = lam acc. lam s.
     if null s then acc
     else work (f acc (head s)) (tail s)
   in
-  (work (head is) (tail is)).0
+  let r : (Int, Float) = work (head is) (tail is) in
+  r.0
 
 let parallelViterbi_forward : [[Int]] -> (Int -> Int -> Float) -> (Int -> Int -> Float)
                            -> [Int] -> [Float] -> {chi : [Float], zeta : [[Int]]} =
@@ -44,7 +49,8 @@ let parallelViterbi_forward : [[Int]] -> (Int -> Int -> Float) -> (Int -> Int ->
   let numStates = length predecessors in
   let n = length inputs in
   let zeta = create n (lam. create numStates (lam. 0)) in
-  recursive let work = lam acc. lam idx.
+  recursive let work : ViterbiForwardResult -> Int -> ViterbiForwardResult =
+    lam acc. lam idx.
     if null idx then acc
     else
       let i = head idx in
@@ -113,7 +119,9 @@ let pow : Int -> Int -> Int = lam b. lam e.
   recursive let work = lam acc. lam s.
     if null s then acc
     else work (muli (head s) acc) (tail s)
-  in work 1 (create e (lam. b))
+  in
+  let i = 1 in
+  work i (create e (lam. b))
 
 let getTransitionProb : [[Float]] -> [Float] -> Int -> Int -> Int -> Float
                      -> Float -> Int -> Int -> Float =
@@ -201,22 +209,72 @@ let parallelViterbi : [[Int]] -> [[Float]] -> [Float] -> [[Float]]
 
 mexpr
 
--- Nonsense utest to prevent the deadcode elimination from removing the called
--- functions. The utest will be ignored by 'parallelmi'.
-utest
-  parallelViterbi
-  [[]]
-  [[]]
-  []
-  [[]]
-  []
-  0
-  0
-  0
-  0.0
-  0.0
-  0
-  0
-  [[]]
-with () in
-()
+let model = parseModel (get argv 1) in
+let signals = parseSignals (get argv 2) in
+let references = parseSignals (get argv 3) in
+let batchSize = 1024 in
+let batchOverlap = 128 in
+let bases = "ACGT" in
+
+let baseToIndex : Char -> Int = lam base.
+  match base with 'A' then 0
+  else match base with 'C' then 1
+  else match base with 'G' then 2
+  else match base with 'T' then 3
+  else error (join ["Invalid base character: ", [base]])
+in
+
+let indexToBase : Int -> Char = lam index.
+  match index with 0 then 'A'
+  else match index with 1 then 'C'
+  else match index with 2 then 'G'
+  else match index with 3 then 'T'
+  else error (join ["Invalid base index: ", [index]])
+in
+
+let states : [State] = sort (cmpState model) (states bases model.k model.dMax) in
+
+let predecessors =
+  map (lam s. map (stateToIndex model) (pred bases model.dMax s)) states
+in
+
+let initProbs =
+  map
+    (lam s : State.
+      if eqi s.layer 1 then
+        divf 1.0 (statesPerLayer model)
+      else negf (divf 1.0 0.0))
+    states
+in
+
+let paddedSignals =
+  match max subi (map length signals) with Some maxLength then
+    map
+      (lam signal : Signal.
+        let values = signal.values in
+        let createPadded = lam i.
+          if lti i (length values) then get values i else 0
+        in
+        {signal with values = create maxLength createPadded})
+      signals
+  else never
+in
+
+let result = accelerate
+  (parallelViterbi
+    predecessors -- predecessors
+    model.transitionProbabilities -- transProb
+    initProbs -- initProbs
+    model.observationProbabilities -- outProb
+    model.duration -- duration
+    model.k -- k
+    model.dMax -- dMax
+    (statesPerLayer model) -- statesPerLayer
+    model.tailFactor -- tailFactor
+    model.tailFactorComp -- tailFactorComp
+    batchSize -- batchSize
+    batchOverlap -- batchOverlap
+    (map (lam signal : Signal. signal.values) paddedSignals)) -- inputSignals
+in
+
+result
