@@ -187,8 +187,6 @@ gpu.c gpu.h: gpu.fut
   writeFile (tempfile "gpu.fut") futharkProg;
   writeFile (tempfile "dune") dunefile;
   writeFile (tempfile "Makefile") makefile;
-  printLn dir;
-  exit 1;
 
   let command = ["make"] in
   let r = sysRunCommand command "" dir in
