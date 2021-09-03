@@ -229,7 +229,6 @@ let compile : String -> Unit = lam file.
           let ast = generate env ast in
           let ast = insertExternalCDeclarations externals ast in
           let ocamlProg = pprintOCamlAst ast in
-          printLn futharkProg;
           compileAccelerated file ocamlProg cProg futharkProg
         else never
       else never

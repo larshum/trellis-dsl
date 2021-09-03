@@ -6,8 +6,8 @@ let mapSumOfProducts : [Int] -> [Int] -> [Int] = lam a. lam b.
 
 mexpr
 
-let s1 = create 50000 (lam. randIntU 1 10) in
-let s2 = create 50000 (lam. randIntU 1 10) in
+let s1 = create 10000 (lam. randIntU 1 10) in
+let s2 = create 10000 (lam. randIntU 1 10) in
 let t1 = wallTimeMs () in
 let lhs = accelerate (mapSumOfProducts s1 s2) in
 let t2 = wallTimeMs () in
