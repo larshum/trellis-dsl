@@ -3,8 +3,8 @@ default: parallelviterbi evaluate
 parallelviterbi: parallelviterbi.mc state.mc parallelmi
 	./parallelmi $<
 
-evaluate: evaluate.cpp
-	g++ -std=c++14 -O2 $^ -o $@
+evaluate: evaluate.mc
+	mi compile $<
 
 parallelmi: parallelmi.mc
 	mi compile $<
