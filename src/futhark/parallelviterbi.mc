@@ -1,4 +1,4 @@
-include "translate.mc"
+include "state.mc"
 
 type ViterbiForwardResult = {chi : [Int], zeta : [[Int]]}
 
@@ -219,44 +219,17 @@ printLn (join ["parseSignals: ", float2string (divf (subf t2 t1) 1000.0)]);
 
 let batchSize = 1024 in
 let batchOverlap = 128 in
-let bases = "ACGT" in
 
-let baseToIndex : Char -> Int = lam base.
-  match base with 'A' then 0
-  else match base with 'C' then 1
-  else match base with 'G' then 2
-  else match base with 'T' then 3
-  else error (join ["Invalid base character: ", [base]])
-in
-
-let indexToBase : Int -> Char = lam index.
-  match index with 0 then 'A'
-  else match index with 1 then 'C'
-  else match index with 2 then 'G'
-  else match index with 3 then 'T'
-  else error (join ["Invalid base index: ", [index]])
-in
-
-let printStateIndex : Int -> [Char] = lam stateIndex.
-  if lti stateIndex 64 then
-    [indexToBase (modi (srli stateIndex 4) 4)]
-  else []
-in
-
-let printStateIndices : [Int] -> String = lam stateIndices.
-  join (map printStateIndex stateIndices)
-in
-
-let states : [State] = sort (cmpState model) (states bases model.k model.dMax) in
+let states : [State] = sort (cmpState model) (stateSpace model) in
 
 let predecessors : [[Int]] =
-  map (lam s. map (stateToIndex model) (pred bases model.dMax s)) states
+  map (lam s. map (stateToIndex model) (pred model s)) states
 in
 
 let initProbs : [Float] =
   map
     (lam s : State.
-      if eqi s.layer 1 then
+      if eqi s.layer 0 then
         divf 1.0 (int2float (statesPerLayer model))
       else negf (divf 1.0 0.0))
     states
@@ -265,7 +238,7 @@ in
 let paddedSignalValues : [[Int]] =
   let signalLength = lam signal : Signal. length signal.values in
   match max subi (map signalLength signals) with Some maxLength then
-    -- Add extra padding for the batches
+    -- Add extra padding to fit the extra batching overlap
     let batchOutputSize = subi batchSize batchOverlap in
     let lengthPlusBatch =
       addi
@@ -311,4 +284,4 @@ printLn
       let inputSignal : Signal = get signals i in
       let signalLength = length inputSignal.values in
       let output = subsequence (get result i) 0 signalLength in
-      join [inputSignal.id, "\n", printStateIndices output])))
+      join [inputSignal.id, "\n", printStateData (map (indexToState model) output)])))
