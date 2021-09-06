@@ -1,33 +1,41 @@
 include "seq.mc"
 
-let levenshtein = lam s1. lam s2.
-  let n1 = addi (length s1) 1 in
-  let n2 = addi (length s2) 1 in
-  let mat = ref (create n1 (lam i. create n2 (lam i. 0))) in
-  recursive let work = lam row. lam col.
-    let val =
-      if eqi row 0 then col
-      else if eqi col 0 then row
+let min3 = lam a. lam b. lam c.
+  if lti a b then
+    if lti a c then a else c
+  else
+    if lti b c then b else c
+
+recursive let levenshtein = lam s1. lam s2.
+  if gti (length s1) (length s2) then levenshtein s2 s1
+  else
+    let n = addi (length s1) 1 in
+    let m = addi (length s2) 1 in
+    recursive let levenshteinRow = lam i. lam prev. lam curr.
+      if eqi i m then prev
       else
-        let replace =
-          let v = get (get (deref mat) (subi row 1)) (subi col 1) in
-          if eqc (get s1 (subi row 1)) (get s2 (subi col 1)) then v else addi v 1
+        let curr =
+          mapi
+            (lam j. lam.
+              if eqi j 0 then i
+              else
+                let del = addi (get prev j) 1 in
+                let ins = addi (get curr (subi j 1)) 1 in
+                let sub =
+                  if eqc (get s1 (subi j 1)) (get s2 (subi i 1)) then
+                    get prev (subi j 1)
+                  else
+                    addi (get prev (subi j 1)) 1
+                in
+                min3 del ins sub)
+            curr
         in
-        let insert = addi (get (get (deref mat) (subi row 1)) col) 1 in
-        let delete = addi (get (get (deref mat) row) (subi col 1)) 1 in
-        minOrElse (lam. error "Empty sequence") subi
-                  [replace, insert, delete]
+        levenshteinRow (addi i 1) curr prev
     in
-    modref mat (set (deref mat) row (set (get (deref mat) row) col val));
-    if and (eqi row (subi n1 1)) (eqi col (subi n2 1)) then
-      ()
-    else if eqi col (subi n2 1) then
-      work (addi row 1) 0
-    else
-      work row (addi col 1)
-  in
-  work 0 0;
-  get (get (deref mat) (length s1)) (length s2)
+    let prev = create n (lam i. i) in
+    let curr = create n (lam. 0) in
+    get (levenshteinRow 1 prev curr) (length s1)
+end
 
 utest levenshtein "" "" with 0
 utest levenshtein "massa" "maska" with 1
