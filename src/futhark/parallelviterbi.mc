@@ -209,9 +209,14 @@ let parallelViterbi : [[Int]] -> [[Float]] -> [Float] -> [[Float]]
 
 mexpr
 
+let t0 = wallTimeMs () in
 let model = parseModel (get argv 1) in
+let t1 = wallTimeMs () in
 let signals = parseSignals (get argv 2) in
-let references = parseSignals (get argv 3) in
+let t2 = wallTimeMs () in
+printLn (join ["parseModel: ", float2string (divf (subf t1 t0) 1000.0)]);
+printLn (join ["parseSignals: ", float2string (divf (subf t2 t1) 1000.0)]);
+
 let batchSize = 1024 in
 let batchOverlap = 128 in
 let bases = "ACGT" in
@@ -232,34 +237,55 @@ let indexToBase : Int -> Char = lam index.
   else error (join ["Invalid base index: ", [index]])
 in
 
+let printStateIndex : Int -> [Char] = lam stateIndex.
+  if lti stateIndex 64 then
+    [indexToBase (modi (srli stateIndex 4) 4)]
+  else []
+in
+
+let printStateIndices : [Int] -> String = lam stateIndices.
+  join (map printStateIndex stateIndices)
+in
+
 let states : [State] = sort (cmpState model) (states bases model.k model.dMax) in
 
-let predecessors =
+let predecessors : [[Int]] =
   map (lam s. map (stateToIndex model) (pred bases model.dMax s)) states
 in
 
-let initProbs =
+let initProbs : [Float] =
   map
     (lam s : State.
       if eqi s.layer 1 then
-        divf 1.0 (statesPerLayer model)
+        divf 1.0 (int2float (statesPerLayer model))
       else negf (divf 1.0 0.0))
     states
 in
 
-let paddedSignals =
-  match max subi (map length signals) with Some maxLength then
+let paddedSignalValues : [[Int]] =
+  let signalLength = lam signal : Signal. length signal.values in
+  match max subi (map signalLength signals) with Some maxLength then
+    -- Add extra padding for the batches
+    let batchOutputSize = subi batchSize batchOverlap in
+    let lengthPlusBatch =
+      addi
+        (muli
+          (divi (addi maxLength (addi batchOutputSize 1)) batchOutputSize)
+          batchOutputSize)
+        batchOverlap
+    in
     map
       (lam signal : Signal.
-        let values = signal.values in
+        let values : [Int] = signal.values in
         let createPadded = lam i.
           if lti i (length values) then get values i else 0
         in
-        {signal with values = create maxLength createPadded})
+        create lengthPlusBatch createPadded)
       signals
-  else never
+  else []
 in
 
+let t0 = wallTimeMs () in
 let result = accelerate
   (parallelViterbi
     predecessors -- predecessors
@@ -274,7 +300,15 @@ let result = accelerate
     model.tailFactorComp -- tailFactorComp
     batchSize -- batchSize
     batchOverlap -- batchOverlap
-    (map (lam signal : Signal. signal.values) paddedSignals)) -- inputSignals
+    paddedSignalValues) -- inputSignals
 in
+let t1 = wallTimeMs () in
+printLn (join ["Viterbi time: ", float2string (divf (subf t1 t0) 1000.0)]);
 
-result
+printLn
+  (strJoin "\n"
+    (create (length result) (lam i.
+      let inputSignal : Signal = get signals i in
+      let signalLength = length inputSignal.values in
+      let output = subsequence (get result i) 0 signalLength in
+      join [inputSignal.id, "\n", printStateIndices output])))
