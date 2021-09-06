@@ -199,7 +199,7 @@ gpu.c gpu.h: gpu.fut
   let destinationFile = filenameWithoutExtension (filename sourcePath) in
   sysMoveFile binPath destinationFile;
   sysChmodWriteAccessFile destinationFile;
-  sysTempDirDelete td;
+  sysTempDirDelete td ();
   ()
 
 let compile : String -> Unit = lam file.
