@@ -43,8 +43,6 @@ lang PMExprPrettyPrint = MExprPrettyPrint + MExprParallelKeywordMaker
   | TmParallelMap2 _ -> false
   | TmParallelFlatMap _ -> false
   | TmParallelReduce _ -> false
-  | TmParallelScan _ -> false
-  | TmParallelFilter _ -> false
 
   sem pprintCode (indent : Int) (env : PprintEnv) =
   | TmAccelerate t ->
@@ -79,17 +77,13 @@ lang PMExprPrettyPrint = MExprPrettyPrint + MExprParallelKeywordMaker
         else never
       else never
     else never
-  | TmParallelScan t -> never
-  | TmParallelFilter t -> never
 end
 
 let parallelKeywords = [
   "accelerate",
   "parallelMap",
   "parallelMap2",
-  "parallelReduce",
-  "parallelScan",
-  "parallelFilter"
+  "parallelReduce"
 ]
 
 let keywordsSymEnv =
