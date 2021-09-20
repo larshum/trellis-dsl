@@ -196,7 +196,7 @@ let parallelViterbi : [[Int]] -> [[Float]] -> [Float] -> [[Float]]
                                          statesPerLayer tailFactor tailFactorComp in
   let outputProb = getOutputProb outProb statesPerLayer in
   let batchOutputSize = subi batchSize batchOverlap in
-  let nbatches = divf (subf (length (head inputSignals)) batchOverlap)
+  let nbatches = divi (subi (length (head inputSignals)) batchOverlap)
                       batchOutputSize in
   let n = muli batchOutputSize nbatches in
   map
