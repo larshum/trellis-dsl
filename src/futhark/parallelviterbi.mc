@@ -1,6 +1,6 @@
 include "state.mc"
 
-type ViterbiForwardResult = {chi : [Int], zeta : [[Int]]}
+type ViterbiForwardResult = {chi : [Float], zeta : [[Int]]}
 
 let mapi : (Int -> Int -> Float) -> [Int] -> [Float] =
   lam f. lam s.
@@ -28,7 +28,11 @@ let maxByStateExn : (Int -> Float) -> [Int] -> Int =
 
 let maxIndexByStateExn : [Float] -> Int =
   lam s.
-  let is = create (length s) (lam i. (i, get s i)) in
+  let is : [(Int, Float)] =
+    create
+      (length s)
+      (lam i.
+        let t : (Int, Float) = (i, get s i) in t) in
   let f : (Int, Float) -> (Int, Float) -> (Int, Float) = lam a. lam b.
     if gtf a.1 b.1 then a else b
   in
@@ -48,7 +52,8 @@ let parallelViterbi_forward : [[Int]] -> (Int -> Int -> Float) -> (Int -> Int ->
   lam chi1.
   let numStates = length predecessors in
   let n = length inputs in
-  let zeta = create n (lam. create numStates (lam. 0)) in
+  let zeta : [[Int]] = create n (lam.
+    let t : [Int] = create numStates (lam. 0) in t) in
   recursive let work : ViterbiForwardResult -> Int -> ViterbiForwardResult =
     lam acc. lam idx.
     if null idx then acc
@@ -56,14 +61,14 @@ let parallelViterbi_forward : [[Int]] -> (Int -> Int -> Float) -> (Int -> Int ->
       let i = head idx in
       let x = get inputs i in
       let logProbFrom =
-        lam state. lam pre.
+        lam state : Int. lam pre : Int.
           probMul (get acc.chi pre)
                   (transitionProb pre state) in
       let newZeta = create numStates
-        (lam state. maxByStateExn (logProbFrom state) (get predecessors state)) in
+        (lam state : Int. maxByStateExn (logProbFrom state) (get predecessors state)) in
       let newChi = mapi
-        (lam state. lam pre. probMul (logProbFrom state pre)
-                                     (outputProb state x))
+        (lam state : Int. lam pre : Int.
+          probMul (logProbFrom state pre) (outputProb state x))
         newZeta in
       let zeta = set acc.zeta i newZeta in
       work {chi = newChi, zeta = zeta} (tail idx)
@@ -156,16 +161,21 @@ let batchedViterbi : [[Int]] -> (Int -> Int -> Float) -> [Float]
   lam signal.
   let batchOutputSize = subi batchSize batchOverlap in
   let nbatches = divi (subi (length signal) batchOverlap) batchOutputSize in
-  let output = create nbatches (lam. create batchOutputSize (lam. 0)) in
+  let output : [[Int]] =
+    create
+      nbatches
+      (lam.
+        let t : [Int] = create batchOutputSize (lam. 0) in t) in
   recursive
-    let loop = lam acc. lam idx.
+    let loop = lam acc : [[Int]]. lam idx : [Int].
       if null idx then acc
       else
         let i = head idx in
         let offset = muli i batchOutputSize in
-        let batch = subsequence signal offset batchSize in
-        let out = viterbi predecessors transitionProb initProbs outputProb batch in
-        let acc = set acc i (subsequence out 0 batchOutputSize) in
+        let batch : [Int] = subsequence signal offset batchSize in
+        let out : [Int] = viterbi predecessors transitionProb initProbs outputProb batch in
+        let batchOut : [Int] = subsequence out 0 batchOutputSize in
+        let acc : [[Int]] = set acc i batchOut in
         loop acc (tail idx)
     let flatMapId = lam acc. lam s.
       if null s then acc
@@ -192,19 +202,21 @@ let parallelViterbi : [[Int]] -> [[Float]] -> [Float] -> [[Float]]
   lam batchSize.
   lam batchOverlap.
   lam inputSignals.
-  let transitionProb = getTransitionProb transProb duration k dMax
-                                         statesPerLayer tailFactor tailFactorComp in
-  let outputProb = getOutputProb outProb statesPerLayer in
+  let transitionProb : Int -> Int -> Float =
+    getTransitionProb transProb duration k dMax
+                      statesPerLayer tailFactor tailFactorComp in
+  let outputProb : Int -> Int -> Float = getOutputProb outProb statesPerLayer in
   let batchOutputSize = subi batchSize batchOverlap in
   let nbatches = divi (subi (length (head inputSignals)) batchOverlap)
                       batchOutputSize in
   let n = muli batchOutputSize nbatches in
   map
     (lam signal.
-      subsequence
-        (batchedViterbi predecessors transitionProb initProbs outputProb
-                        batchSize batchOverlap signal)
-        0 n)
+      let batch : [Int] =
+        batchedViterbi predecessors transitionProb initProbs
+                       outputProb batchSize batchOverlap signal in
+      let t : [Int] = subsequence batch 0 n in
+      t)
     inputSignals
 
 mexpr
@@ -226,6 +238,8 @@ let predecessors : [[Int]] =
   map (lam s. map (stateToIndex model) (pred model s)) states
 in
 
+let transProb : [[Float]] = model.transitionProbabilities in
+
 let initProbs : [Float] =
   map
     (lam s : State.
@@ -234,6 +248,14 @@ let initProbs : [Float] =
       else negf (divf 1.0 0.0))
     states
 in
+
+let outProb : [[Float]] = model.observationProbabilities in
+let duration : [Float] = model.duration in
+let k : Int = model.k in
+let dMax : Int = model.dMax in
+let statesPerLayer : Int = statesPerLayer model in
+let tailFactor : Float = model.tailFactor in
+let tailFactorComp : Float = model.tailFactorComp in
 
 let paddedSignalValues : [[Int]] =
   let signalLength = lam signal : Signal. length signal.values in
@@ -261,19 +283,19 @@ in
 let t0 = wallTimeMs () in
 let result = accelerate
   (parallelViterbi
-    predecessors -- predecessors
-    model.transitionProbabilities -- transProb
-    initProbs -- initProbs
-    model.observationProbabilities -- outProb
-    model.duration -- duration
-    model.k -- k
-    model.dMax -- dMax
-    (statesPerLayer model) -- statesPerLayer
-    model.tailFactor -- tailFactor
-    model.tailFactorComp -- tailFactorComp
-    batchSize -- batchSize
-    batchOverlap -- batchOverlap
-    paddedSignalValues) -- inputSignals
+    predecessors
+    transProb
+    initProbs
+    outProb
+    duration
+    k
+    dMax
+    statesPerLayer
+    tailFactor
+    tailFactorComp
+    batchSize
+    batchOverlap
+    paddedSignalValues)
 in
 let t1 = wallTimeMs () in
 printLn (join ["Viterbi time: ", float2string (divf (subf t1 t0) 1000.0)]);

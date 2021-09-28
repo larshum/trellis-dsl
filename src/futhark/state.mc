@@ -33,10 +33,8 @@ utest indexToBase 1 with 'C'
 utest indexToBase 2 with 'G'
 utest indexToBase 3 with 'T'
 
-recursive let powf = lam b : Float. lam e : Int.
-  if eqi e 0 then 1.0
-  else mulf b (powf b (subi e 1))
-end
+let powf = lam b : Float. lam e : Int.
+  foldl mulf 1.0 (create e (lam. b))
 
 utest powf 2.0 4 with 16.0 using eqfApprox 1e-6
 utest powf 2.5 2 with 6.25 using eqfApprox 1e-6
