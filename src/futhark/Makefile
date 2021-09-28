@@ -1,12 +1,9 @@
 default: parallelviterbi evaluate
 
-parallelviterbi: parallelviterbi.mc state.mc parallelmi
-	./parallelmi $<
+parallelviterbi: parallelviterbi.mc state.mc
+	mi accelerate $<
 
 evaluate: evaluate.mc
-	mi compile $<
-
-parallelmi: parallelmi.mc
 	mi compile $<
 
 clean:
