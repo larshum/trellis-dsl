@@ -94,14 +94,14 @@ let parseModel : String -> ViterbiParams = lam filename.
   match parsed with TmRecord {bindings = bindings} then
     let bindings = _mapSidToString bindings in
 
-    let signalLevels = _expr2int (mapFindWithExn "signalLevels" bindings) in
-    let observationProbs = _expr2floatSeqOfSeq (mapFindWithExn "observationProbabilities" bindings) in
-    let transitionProbs = _expr2floatSeqOfSeq (mapFindWithExn "transitionProbabilities" bindings) in
-    let duration = _expr2floatSeq (mapFindWithExn "duration" bindings) in
-    let k = _expr2int (mapFindWithExn "k" bindings) in
-    let dMax = _expr2int (mapFindWithExn "dMax" bindings) in
-    let tailFactor = _expr2float (mapFindWithExn "tailFactor" bindings) in
-    let tailFactorComp = _expr2float (mapFindWithExn "tailFactorComp" bindings) in
+    let signalLevels = _expr2int (mapFindExn "signalLevels" bindings) in
+    let observationProbs = _expr2floatSeqOfSeq (mapFindExn "observationProbabilities" bindings) in
+    let transitionProbs = _expr2floatSeqOfSeq (mapFindExn "transitionProbabilities" bindings) in
+    let duration = _expr2floatSeq (mapFindExn "duration" bindings) in
+    let k = _expr2int (mapFindExn "k" bindings) in
+    let dMax = _expr2int (mapFindExn "dMax" bindings) in
+    let tailFactor = _expr2float (mapFindExn "tailFactor" bindings) in
+    let tailFactorComp = _expr2float (mapFindExn "tailFactorComp" bindings) in
 
     { signalLevels = signalLevels
     , observationProbabilities = observationProbs
@@ -123,9 +123,9 @@ let parseSignals : String -> [Signal] = lam filename.
   match parsed with TmRecord {bindings = bindings} then
     let bindings = _mapSidToString bindings in
 
-    let readKeys = _expr2strSeq (mapFindWithExn "keys" bindings) in
+    let readKeys = _expr2strSeq (mapFindExn "keys" bindings) in
     let keys = map _readKey2Key readKeys in
-    let signals = _expr2intSeqOfSeq (mapFindWithExn "signals" bindings) in
+    let signals = _expr2intSeqOfSeq (mapFindExn "signals" bindings) in
 
     zipWith (lam k. lam s. {id = k, values = s}) keys signals
 
@@ -139,8 +139,8 @@ let parseReferences : String -> [Reference] = lam filename.
   match parsed with TmRecord {bindings = bindings} then
     let bindings = _mapSidToString bindings in
 
-    let keys = _expr2strSeq (mapFindWithExn "keys" bindings) in
-    let genomes = _expr2intSeqOfSeq (mapFindWithExn "genomes" bindings) in
+    let keys = _expr2strSeq (mapFindExn "keys" bindings) in
+    let genomes = _expr2intSeqOfSeq (mapFindExn "genomes" bindings) in
 
     zipWith (lam k. lam g. {id = k, genome = g}) keys genomes
   else error "Expected record"
