@@ -1,7 +1,7 @@
 default: parallelviterbi evaluate
 
 parallelviterbi: parallelviterbi.mc state.mc
-	mi accelerate $<
+	mi compile --accelerate $<
 
 evaluate: evaluate.mc
 	mi compile $<

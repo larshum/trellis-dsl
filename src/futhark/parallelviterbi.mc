@@ -1,7 +1,5 @@
 include "state.mc"
 
-type ViterbiForwardResult = {chi : [Float], zeta : [[Int]]}
-
 let mapi : (Int -> Int -> Float) -> [Int] -> [Float] =
   lam f. lam s.
   recursive let work = lam acc. lam sa. lam sb.
@@ -54,7 +52,8 @@ let parallelViterbi_forward : [[Int]] -> (Int -> Int -> Float) -> (Int -> Int ->
   let n = length inputs in
   let zeta : [[Int]] = create n (lam.
     let t : [Int] = create numStates (lam. 0) in t) in
-  recursive let work : ViterbiForwardResult -> Int -> ViterbiForwardResult =
+  recursive let work : {chi : [Float], zeta : [[Int]]} -> [Int]
+                    -> {chi : [Float], zeta : [[Int]]} =
     lam acc. lam idx.
     if null idx then acc
     else
@@ -79,14 +78,14 @@ let parallelViterbi_backwardStep : Int -> [[Int]] -> [Int] =
   lam lastState.
   lam zeta.
   let n = length zeta in
-  let acc = concat [lastState] (create n (lam. 0)) in
-  recursive let work = lam acc. lam idx.
+  let acc : [Int] = concat [lastState] (create n (lam. 0)) in
+  recursive let work : [Int] -> [Int] -> [Int] = lam acc. lam idx.
     if null idx then acc
     else
       let i = head idx in
       let ii = addi i 1 in
       let here = get zeta i in
-      let acc = set acc ii (get here (get acc i)) in
+      let acc : [Int] = set acc ii (get here (get acc i)) in
       work acc (tail idx)
   in
   work acc (create n (lam i. i))
@@ -111,10 +110,9 @@ let viterbi : [[Int]] -> (Int -> Int -> Float) -> [Float]
         probMul (get initProbs state) (outputProb state x)) in
   let r = parallelViterbi_forward predecessors transitionProb outputProb
                                   inputs chi1 in
-  match r with {chi = chi, zeta = zeta} then
-    let lastState = maxIndexByStateExn chi in
-    reverse (parallelViterbi_backwardStep lastState (reverse zeta))
-  else never
+  match r with {chi = chi, zeta = zeta} in
+  let lastState = maxIndexByStateExn chi in
+  reverse (parallelViterbi_backwardStep lastState (reverse zeta))
 
 let stateLayer : Int -> Int -> Int =
   lam statesPerLayer. lam state.
@@ -167,7 +165,7 @@ let batchedViterbi : [[Int]] -> (Int -> Int -> Float) -> [Float]
       (lam.
         let t : [Int] = create batchOutputSize (lam. 0) in t) in
   recursive
-    let loop = lam acc : [[Int]]. lam idx : [Int].
+    let loop : [[Int]] -> [Int] -> [[Int]] = lam acc. lam idx.
       if null idx then acc
       else
         let i = head idx in
@@ -177,14 +175,8 @@ let batchedViterbi : [[Int]] -> (Int -> Int -> Float) -> [Float]
         let batchOut : [Int] = subsequence out 0 batchOutputSize in
         let acc : [[Int]] = set acc i batchOut in
         loop acc (tail idx)
-    let flatMapId = lam acc. lam s.
-      if null s then acc
-      else
-        let h = head s in
-        let x = h in
-        flatMapId (concat acc x) (tail s)
   in
-  flatMapId [] (loop output (create nbatches (lam i. i)))
+  foldl concat [] (loop output (create nbatches (lam i. i)))
 
 let parallelViterbi : [[Int]] -> [[Float]] -> [Float] -> [[Float]]
                    -> [Float] -> Int -> Int -> Int -> Float -> Float
@@ -215,8 +207,8 @@ let parallelViterbi : [[Int]] -> [[Float]] -> [Float] -> [[Float]]
       let batch : [Int] =
         batchedViterbi predecessors transitionProb initProbs
                        outputProb batchSize batchOverlap signal in
-      let t : [Int] = subsequence batch 0 n in
-      t)
+      utest length batch with n in
+      batch)
     inputSignals
 
 mexpr
