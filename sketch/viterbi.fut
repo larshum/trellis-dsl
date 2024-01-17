@@ -41,7 +41,10 @@ let viterbi_forward [m] (predecessors : [nstates][]state_t) (transp : state_t ->
   let zeta = tabulate m (\_ -> tabulate nstates (\_ -> state.i32 0)) in
   loop {chi, zeta} = {chi = chi1, zeta = zeta} for i < m do
     let x = signal[i] in
-    let log_prob_from (s : state_t) (pre : state_t) : prob_t = chi[state.to_i64 pre] + transp pre s in
+    let log_prob_from (s : state_t) (pre : state_t) : prob_t =
+      if pre >= 0 then chi[state.to_i64 pre] + transp pre s
+      else -prob.inf
+    in
     let new_zeta = tabulate nstates (\s -> max_state (\p -> log_prob_from (state.i64 s) p) predecessors[s]) in
     let new_chi : [nstates]prob_t =
       map2 (\s pre -> log_prob_from (state.i64 s) pre + outp (state.i64 s) x) (indices new_zeta) new_zeta
