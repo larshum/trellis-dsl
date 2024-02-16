@@ -121,60 +121,9 @@ lang TrellisParsePredecessors
     in tokNumber 0 state
 end
 
-lang TrellisPredecessorsValidity =
-  TrellisModelAst + TrellisTypeBitwidth + TrellisTypeCardinality
-
-  -- We express the validity condition of a subcomponent by encoding the
-  -- shifting and masking needed to extract it from the bitwise encoding, and
-  -- the cardinality of the type. If the mask is greater than the cardinality,
-  -- we know there is a "gap" in the valid values of the type.
-  type ValidityCondition = {
-    shift : Int, mask : Int, card : Int
-  }
-
-  sem computeShifts : [TType] -> [Int]
-  sem computeShifts =
-  | types -> computeShiftsH [0] (reverse types)
-
-  sem computeShiftsH : [Int] -> [TType] -> [Int]
-  sem computeShiftsH acc =
-  | [ty] ++ types ->
-    match acc with [h] ++ _ then
-      computeShiftsH (cons (addi h (bitwidthType ty)) acc) types
-    else [bitwidthType ty]
-  | [] -> tail acc
-
-  sem generateValidityCondition : (Int, TType) -> ValidityCondition
-  sem generateValidityCondition =
-  | (shift, ty) ->
-    let mask = subi (slli 1 (bitwidthType ty)) 1 in
-    let card = cardinalityType ty in
-    {shift = shift, mask = mask, card = card}
-
-  -- NOTE(larshum, 2024-02-16): A condition is only necessary if the
-  -- cardinality is less than the bitmask plus one. In this case, we know that
-  -- there is at least one encoding of the type that is invalid, i.e., does not
-  -- represent a valid state.
-  sem isNecessaryCondition : ValidityCondition -> Bool
-  sem isNecessaryCondition =
-  | {mask = mask, card = card} -> lti card (addi mask 1)
-
-  sem generateStateValidityConditions : TType -> [ValidityCondition]
-  sem generateStateValidityConditions =
-  | ty ->
-    let subcomps = getSubcomponentsType ty in
-    let shifts = computeShifts subcomps in
-    -- NOTE(larshum, 2024-02-16): We ignore the leftmost subcomponent because
-    -- it doesn't matter if it is a power or two or not (we will never iterate
-    -- beyond its upper value).
-    filter isNecessaryCondition
-      (map (generateValidityCondition) (tail (zip shifts subcomps)))
-end
-
 lang TrellisPredecessors =
   TrellisModelAst + TrellisWritePredecessors + TrellisParsePredecessors +
-  TrellisPredecessorsValidity + TrellisCompileInitializer + TrellisEncode +
-  FutharkAst + FutharkPrettyPrint
+  TrellisCompileInitializer + TrellisEncode + FutharkAst + FutharkPrettyPrint
 
   -- Attempts to compute the predecessors of each state for a given model. The
   -- result is a nested sequence, where the row at index i corresponds to the
@@ -211,25 +160,12 @@ lang TrellisPredecessors =
           {c with body = EProb {p = 1.0, ty = TProb {info = i}, info = i}})
         model.transition.cases
     in
+    let nstates = getGlobalTypeCardinality env env.stateType in
     match generateProbabilityFunction env i transitionProbabilityId transArgs cases
-    with (_, {decl = decl}) in
+    with (_, {decl = probDecl}) in
     let probTyStr = if env.options.useDoublePrecisionFloats then "f64" else "f32" in
-    let condsType = futUnsizedArrayTy_ (futTupleTy_ (create 3 (lam. futIntTy_))) in
-    let condsValue =
-      let conds =
-        if env.options.useBitsetEncoding then
-          generateStateValidityConditions env.stateType
-        else []
-      in
-      futArray_ (map (lam c. futTuple_ (map futInt_ [c.shift, c.mask, c.card])) conds)
-    in
-    let nstates =
-      if env.options.useBitsetEncoding then
-        slli 1 (bitwidthType env.stateType)
-      else
-        cardinalityType env.stateType
-    in
-    let header = FProg {decls = [
+    match generateValidityConditionDeclarations env with (outDecl, stateDecl) in
+    let headerProg = FProg {decls = [
       FDeclModuleAlias {ident = probModuleId, moduleId = probTyStr, info = NoInfo ()},
       FDeclType {
         ident = probTyId, typeParams = [],
@@ -238,13 +174,12 @@ lang TrellisPredecessors =
       FDeclConst {
         ident = nstatesId, ty = FTyInt {info = NoInfo (), sz = I64 ()},
         val = futInt_ nstates, info = NoInfo ()},
-      decl,
-      FDeclConst {
-        ident = nameNoSym "conds", ty = condsType, val = condsValue,
-        info = NoInfo ()}
+      probDecl,
+      outDecl,
+      stateDecl
     ]} in
     let predsCode = readFile (concat trellisSrcLoc "skeleton/preds.fut") in
-    join [printFutProg header, predsCode]
+    join [printFutProg headerProg, predsCode]
 
   -- Compiles the generated Futhark code for computing the predecessors. If
   -- this stage fails, we report an error as it is due to a bug in the code
@@ -288,34 +223,5 @@ use TestLang in
 -- Parsing the predecessors from a string
 utest parsePredecessors "[[0i64, 1i64], [0i64, 1i64]]" with Some [[0, 1], [0, 1]] in
 utest parsePredecessors "[[0i64, 1i64], [0i64, -1i64]]" with Some [[0, 1], [0]] in
-
--- Test the computation of the validity constraints required for the bitset encoding
-let ty1 = TBool {info = NoInfo ()} in
-let ty2 = TInt {bounds = Some (0, 10), info = NoInfo ()} in
-let ty3 = TInt {bounds = Some (0, 3), info = NoInfo ()} in
-let ty4 = TTuple {tys = [ty3, ty3, ty1], info = NoInfo ()} in
-let ty5 = TTuple {tys = [ty3, ty2], info = NoInfo ()} in
-let ty6 = TTuple {tys = [ty4, ty5], info = NoInfo ()} in
-
-utest computeShifts [ty1] with [0] in
-utest computeShifts [ty2] with [0] in
-utest computeShifts [ty3] with [0] in
-utest computeShifts [ty3, ty3, ty1]  with [3, 1, 0] in
-utest computeShifts [ty3, ty2] with [4, 0] in
-utest computeShifts [ty3, ty3, ty1, ty3, ty2] with [9, 7, 6, 4, 0] in
-
-let eqValidityConstraint = lam l. lam r.
-  and (and (eqi l.shift r.shift) (eqi l.mask r.mask)) (eqi l.card r.card)
-in
-let eqValidities = lam l. lam r. eqSeq eqValidityConstraint l r in
-utest generateStateValidityConditions ty1 with [] using eqValidities in
-utest generateStateValidityConditions ty2 with [] using eqValidities in
-utest generateStateValidityConditions ty3 with [] using eqValidities in
-utest generateStateValidityConditions ty4 with [] using eqValidities in
-utest generateStateValidityConditions ty5 with [{shift = 0, mask = 15, card = 11}]
-using eqValidities in
---utest generateStateValidityConditions ty6
---with []
---using eqValidities in
 
 ()

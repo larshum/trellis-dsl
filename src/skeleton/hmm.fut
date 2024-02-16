@@ -2,6 +2,18 @@
 -- NATIVE VITERBI IMPLEMENTATION --
 -----------------------------------
 
+let valid_output_component (o : obs_t) (cond : (i64, i64, i64)) : bool =
+  (o >> (obs.i64 cond.0)) & (obs.i64 cond.1) < obs.i64 cond.2
+
+let valid_state_component (x : state_t) (cond : (i64, i64, i64)) : bool =
+  (x >> (state.i64 cond.0)) & (state.i64 cond.1) < state.i64 cond.2
+
+let valid_output (o : obs_t) : bool =
+  o != obs.i64 (-1) && all (valid_output_component o) out_conds
+
+let valid_state (x : state_t) : bool =
+  all (valid_state_component x) state_conds
+
 type forw_res [n][m] = {chi : [n]prob_t, zeta : [m][n]state_t}
 
 let max_index_by_state (s : []prob_t) : i64 =
@@ -28,8 +40,10 @@ let viterbi_forward [m]
     let (new_zeta, new_chi) =
       unzip
         (tabulate nstates (\dst ->
-          if x == obs.i64 (-1) then (state.i64 dst, chi[dst])
-          else max_pred (f (state.i64 dst)) predecessors[dst]))
+          if valid_output x && valid_state (state.i64 dst) then
+            max_pred (f (state.i64 dst)) predecessors[dst]
+          else
+            (state.i64 dst, chi[dst])))
     in
     {chi = new_chi, zeta = zeta with [i] = new_zeta}
 
@@ -60,7 +74,10 @@ let viterbi_first_batch [m]
   (outp : state_t -> obs_t -> prob_t)
   (transp : state_t -> state_t -> prob_t)
   (signal : [m]obs_t) : [m]state_t =
-  let chi0 = tabulate nstates (\s -> initp (state.i64 s)) in
+  let chi0 = tabulate nstates (\s ->
+    if valid_state (state.i64 s) then initp (state.i64 s)
+    else -prob.inf
+  ) in
   viterbi_helper predecessors outp transp chi0 signal
 
 let viterbi_subseq_batch [m]

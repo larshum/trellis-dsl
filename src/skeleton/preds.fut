@@ -7,7 +7,7 @@ let valid_component (x : i64) (cond : (i64, i64, i64)) : bool =
   (x >> cond.0) & cond.1 < cond.2
 
 let valid_state (x : i64) : bool =
-  all (valid_component x) conds
+  all (valid_component x) state_conds
 
 let is_predecessor (x : i64) (y : i64) : bool =
   if valid_state x && valid_state y then

@@ -27,6 +27,8 @@ let obsModuleId = nameSym "obs"
 let nstatesId = nameSym "nstates"
 let nobsId = nameSym "nobs"
 let npredsId = nameSym "npreds"
+let outCondsId = nameSym "out_conds"
+let stateCondsId = nameSym "state_conds"
 
 lang TrellisCompileBase = TrellisModelAst + FutharkAst + TrellisTypeBitwidth
   -- The environment used throughout compilation of the Trellis model AST.
@@ -386,9 +388,91 @@ lang TrellisCompileProbabilityFunction =
   | e -> sfoldTExprTExpr (collectUsedTables tables) acc e
 end
 
+-- NOTE(larshum, 2024-02-16): Produces validity conditions we use in the
+-- generated Futhark code to ensure all integer encodings of states and outputs
+-- are valid. We need this for the bitset encoding because components that do
+-- not use all available bit-encodings leave "gaps" consisting of invalid
+-- encodings.
+lang TrellisCompileValidity =
+  TrellisModelAst + TrellisTypeBitwidth + TrellisTypeCardinality + FutharkAst
+
+  -- We express the validity condition of a subcomponent by encoding the
+  -- shifting and masking needed to extract it from the bitwise encoding, and
+  -- the cardinality of the type. If the mask is greater than the cardinality,
+  -- we know there is a "gap" in the valid values of the type.
+  type ValidityCondition = {
+    shift : Int, mask : Int, card : Int
+  }
+
+  sem computeShifts : [TType] -> [Int]
+  sem computeShifts =
+  | types -> computeShiftsH [0] (reverse types)
+
+  sem computeShiftsH : [Int] -> [TType] -> [Int]
+  sem computeShiftsH acc =
+  | [ty] ++ types ->
+    match acc with [h] ++ _ then
+      computeShiftsH (cons (addi h (bitwidthType ty)) acc) types
+    else [bitwidthType ty]
+  | [] -> tail acc
+
+  sem generateValidityCondition : (Int, TType) -> ValidityCondition
+  sem generateValidityCondition =
+  | (shift, ty) ->
+    let mask = subi (slli 1 (bitwidthType ty)) 1 in
+    let card = cardinalityType ty in
+    {shift = shift, mask = mask, card = card}
+
+  -- NOTE(larshum, 2024-02-16): A condition is only necessary if the
+  -- cardinality is less than the bitmask plus one. In this case, we know that
+  -- there is at least one encoding of the type that is invalid, i.e., does not
+  -- represent a valid state.
+  sem isNecessaryCondition : ValidityCondition -> Bool
+  sem isNecessaryCondition =
+  | {mask = mask, card = card} -> lti card (addi mask 1)
+
+  sem generateValidityConditions : TType -> [ValidityCondition]
+  sem generateValidityConditions =
+  | ty ->
+    let subcomps = getSubcomponentsType ty in
+    let shifts = computeShifts subcomps in
+    -- NOTE(larshum, 2024-02-16): We ignore the leftmost subcomponent because
+    -- it doesn't matter if it is a power or two or not (we will never iterate
+    -- beyond its upper value).
+    filter isNecessaryCondition
+      (map (generateValidityCondition) (tail (zip shifts subcomps)))
+
+  sem generateValidityConditionDeclarations : TrellisCompileEnv -> (FutDecl, FutDecl)
+  sem generateValidityConditionDeclarations =
+  | env ->
+    let conditionTy =
+      futUnsizedArrayTy_ (futTupleTy_ (create 3 (lam. futIntTy_)))
+    in
+    let conds =
+      if env.options.useBitsetEncoding then
+        ( generateValidityConditions env.outputType
+        , generateValidityConditions env.stateType )
+      else
+        ([], [])
+    in
+    let futTypeConds = lam conds.
+      futArray_ (map (lam c. futTuple_ (map futInt_ [c.shift, c.mask, c.card])) conds)
+    in
+    let outDecl = FDeclConst {
+      ident = outCondsId, ty = conditionTy, val = futTypeConds conds.0,
+      info = NoInfo ()
+    } in
+    let stateDecl = FDeclConst {
+      ident = stateCondsId, ty = conditionTy, val = futTypeConds conds.1,
+      info = NoInfo ()
+    } in
+    (outDecl, stateDecl)
+end
+
 lang TrellisCompileInitializer =
   TrellisCompileBase + TrellisTypeBitwidth + TrellisTypeCardinality +
-  TrellisCompileProbabilityFunction + FutharkPrettyPrint
+  TrellisCompileProbabilityFunction + TrellisCompileValidity +
+  FutharkPrettyPrint
 
   sem constructTablesType : TrellisCompileEnv -> FutDecl
   sem constructTablesType =
@@ -484,6 +568,7 @@ lang TrellisCompileInitializer =
     let probTyStr =
       if env.options.useDoublePrecisionFloats then "f64" else "f32"
     in
+    match generateValidityConditionDeclarations env with (outCondDecl, stateCondDecl) in
     FProg {decls = [
       FDeclModuleAlias {ident = stateModuleId, moduleId = stateTyStr, info = NoInfo ()},
       FDeclModuleAlias {ident = obsModuleId, moduleId = outTyStr, info = NoInfo ()},
@@ -511,7 +596,9 @@ lang TrellisCompileInitializer =
       outp.decl,
       transp.decl,
       constructModelType env,
-      constructModelEntry env
+      constructModelEntry env,
+      outCondDecl,
+      stateCondDecl
     ]}
 end
 
@@ -634,5 +721,34 @@ utest pprintExpr (compileTrellisSet emptyEnv valueSet1) with "(==) x 3"
 using eqStringIgnoreWhitespace else ppStrings in
 utest pprintExpr (compileTrellisSet emptyEnv valueSet2) with "(&&) ((==) x 3) ((==) x 3)"
 using eqStringIgnoreWhitespace else ppStrings in
+
+-- Test the computation of the validity constraints
+let ty1 = TBool {info = NoInfo ()} in
+let ty2 = TInt {bounds = Some (0, 10), info = NoInfo ()} in
+let ty3 = TInt {bounds = Some (0, 3), info = NoInfo ()} in
+let ty4 = TTuple {tys = [ty3, ty3, ty1], info = NoInfo ()} in
+let ty5 = TTuple {tys = [ty3, ty2], info = NoInfo ()} in
+let ty6 = TTuple {tys = [ty4, ty5], info = NoInfo ()} in
+
+utest computeShifts [ty1] with [0] in
+utest computeShifts [ty2] with [0] in
+utest computeShifts [ty3] with [0] in
+utest computeShifts [ty3, ty3, ty1]  with [3, 1, 0] in
+utest computeShifts [ty3, ty2] with [4, 0] in
+utest computeShifts [ty3, ty3, ty1, ty3, ty2] with [9, 7, 6, 4, 0] in
+
+let eqValidityConstraint = lam l. lam r.
+  and (and (eqi l.shift r.shift) (eqi l.mask r.mask)) (eqi l.card r.card)
+in
+let eqValidities = lam l. lam r. eqSeq eqValidityConstraint l r in
+utest generateValidityConditions ty1 with [] using eqValidities in
+utest generateValidityConditions ty2 with [] using eqValidities in
+utest generateValidityConditions ty3 with [] using eqValidities in
+utest generateValidityConditions ty4 with [] using eqValidities in
+utest generateValidityConditions ty5 with [{shift = 0, mask = 15, card = 11}]
+using eqValidities in
+utest generateValidityConditions ty6
+with [{shift = 0, mask = 15, card = 11}]
+using eqValidities in
 
 ()
