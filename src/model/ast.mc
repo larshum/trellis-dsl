@@ -1,6 +1,7 @@
 include "error.mc"
 include "name.mc"
 include "map.mc"
+include "seq.mc"
 include "mexpr/info.mc"
 
 lang TrellisModelTypeAst
@@ -67,6 +68,13 @@ lang TrellisModelTypeAst
       else None ()
     else None ()
   | (lty, rty) -> errorSingle [infoTTy lty, infoTTy rty] "Type mismatch"
+
+  -- Extracts the types of all subcomponents of a type in left to right order.
+  sem getSubcomponentsType : TType -> [TType]
+  sem getSubcomponentsType =
+  | ty & (TBool _ | TInt _ | TProb _) -> [ty]
+  | TTuple t -> join (map getSubcomponentsType t.tys)
+  | TTable _ -> error "Cannot extract subcomponents of a table type"
 end
 
 lang TrellisModelExprAst = TrellisModelTypeAst
@@ -203,3 +211,38 @@ lang TrellisModelAst =
     transition : TransitionProbDef
   }
 end
+
+mexpr
+
+use TrellisModelAst in
+
+let eqBounds = lam b1. lam b2.
+  match (b1, b2) with (Some l, Some r) then
+    and (eqi l.0 r.0) (eqi l.1 r.1)
+  else match (b1, b2) with (None _, None _) then true
+  else false
+in
+recursive let eqTType = lam l. lam r.
+  switch (l, r)
+  case (TBool _, TBool _) then true
+  case (TInt {bounds = b1}, TInt {bounds = b2}) then eqBounds b1 b2
+  case (TProb _, TProb _) then true
+  case (TTuple {tys = ltys}, TTuple {tys = rtys}) then
+    forAll (lam tys. eqTType tys.0 tys.1) (zip ltys rtys)
+  case _ then false
+  end
+in
+let eqTTypes = eqSeq eqTType in
+
+let ty1 = TBool {info = NoInfo ()} in
+let ty2 = TInt {bounds = None (), info = NoInfo ()} in
+let ty3 = TProb {info = NoInfo ()} in
+let ty4 = TTuple {tys = [ty1, ty2, ty3, ty1], info = NoInfo ()} in
+let ty5 = TTuple {tys = [ty2, ty4, ty3], info = NoInfo ()} in
+utest getSubcomponentsType ty1 with [ty1] using eqTTypes in
+utest getSubcomponentsType ty2 with [ty2] using eqTTypes in
+utest getSubcomponentsType ty3 with [ty3] using eqTTypes in
+utest getSubcomponentsType ty4 with [ty1, ty2, ty3, ty1] using eqTTypes in
+utest getSubcomponentsType ty5 with [ty2, ty1, ty2, ty3, ty1, ty3] using eqTTypes in
+
+()

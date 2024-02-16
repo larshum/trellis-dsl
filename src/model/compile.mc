@@ -460,6 +460,17 @@ lang TrellisCompileInitializer =
       info = NoInfo ()
     }
 
+  -- NOTE(larshum, 2024-02-16): This function computes the number of values of
+  -- the state or output types. If we use the bitset encoding, we want to
+  -- include all values encodable in the width of the type for padding reasons.
+  sem getGlobalTypeCardinality : TrellisCompileEnv -> TType -> Int
+  sem getGlobalTypeCardinality env =
+  | ty ->
+    if env.options.useBitsetEncoding then
+      slli 1 (bitwidthType ty)
+    else
+      cardinalityType ty
+
   sem generateInitializer : TrellisCompileEnv -> TModel -> FutProg
   sem generateInitializer env =
   | model ->
@@ -488,10 +499,10 @@ lang TrellisCompileInitializer =
         ty = futProjTy_ (nFutIdentTy_ probModuleId) "t", info = NoInfo ()},
       FDeclConst {
         ident = nstatesId, ty = FTyInt {info = NoInfo (), sz = I64 ()},
-        val = futInt_ (cardinalityType env.stateType), info = NoInfo ()},
+        val = futInt_ (getGlobalTypeCardinality env env.stateType), info = NoInfo ()},
       FDeclConst {
         ident = nobsId, ty = FTyInt {info = NoInfo (), sz = I64 ()},
-        val = futInt_ (cardinalityType env.outputType), info = NoInfo ()},
+        val = futInt_ (getGlobalTypeCardinality env env.outputType), info = NoInfo ()},
       FDeclConst {
         ident = npredsId, ty = FTyInt {info = NoInfo (), sz = I64 ()},
         val = futInt_ env.maxpreds, info = NoInfo ()},

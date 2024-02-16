@@ -77,7 +77,6 @@ lang TrellisEncodeBitwise = TrellisEncodeBase + TrellisTypeBitwidth
   sem applyRightShift info ty shiftAmount =
   | e ->
     if eqi shiftAmount 0 then e else
-    let e = withTyTExpr ty e in
     let rhs = EInt {i = shiftAmount, ty = ty, info = info} in
     EBinOp {op = OSrl (), lhs = e, rhs = rhs, ty = ty, info = info}
 end
